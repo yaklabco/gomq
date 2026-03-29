@@ -395,6 +395,11 @@ func (c *Connection) sendDelivery(channel uint16, method amqp.Method, classID ui
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Cork the TCP socket to batch method + header + body into fewer TCP
+	// segments. On non-Linux platforms this is a no-op.
+	setCork(c.conn, true)
+	defer setCork(c.conn, false)
+
 	deliver, ok := method.(*amqp.BasicDeliver)
 	if ok {
 		// Fast path: use coalesced delivery writer.
