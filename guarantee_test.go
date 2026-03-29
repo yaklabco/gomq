@@ -861,3 +861,168 @@ func TestGuarantee_DeadLetterOnOverflow(t *testing.T) {
 		t.Errorf("dlq body = %q, want %q", string(dlMsg.Body), "overflow-1")
 	}
 }
+
+func TestGuarantee_MessageTTL(t *testing.T) {
+	t.Parallel()
+
+	brk := startTestBroker(t)
+	conn := dialBroker(t, brk)
+
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("open channel: %v", err)
+	}
+
+	// Queue with 50ms TTL.
+	args := amqp.Table{
+		"x-message-ttl": int64(50),
+	}
+	queue, err := ch.QueueDeclare("ttl-test", false, false, false, false, args)
+	if err != nil {
+		t.Fatalf("declare queue: %v", err)
+	}
+
+	// Publish a message.
+	if err := ch.PublishWithContext(context.Background(), "", queue.Name, false, false, amqp.Publishing{
+		Body: []byte("will-expire"),
+	}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// Wait for the message to expire.
+	time.Sleep(100 * time.Millisecond)
+
+	// basic.get should return nothing (message expired).
+	_, ok, err := ch.Get(queue.Name, true)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if ok {
+		t.Error("expected no message (should have expired), but got one")
+	}
+}
+
+func TestGuarantee_DeadLetterOnTTL(t *testing.T) {
+	t.Parallel()
+
+	brk := startTestBroker(t)
+	conn := dialBroker(t, brk)
+
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("open channel: %v", err)
+	}
+
+	// Declare DLX exchange and dead-letter queue.
+	if err := ch.ExchangeDeclare("dlx-ttl", "fanout", false, false, false, false, nil); err != nil {
+		t.Fatalf("declare dlx exchange: %v", err)
+	}
+
+	dlq, err := ch.QueueDeclare("ttl-dead-letters", false, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("declare dead-letter queue: %v", err)
+	}
+
+	if err := ch.QueueBind(dlq.Name, "", "dlx-ttl", false, nil); err != nil {
+		t.Fatalf("bind dlq: %v", err)
+	}
+
+	// Queue with 50ms TTL and DLX.
+	args := amqp.Table{
+		"x-message-ttl":          int64(50),
+		"x-dead-letter-exchange": "dlx-ttl",
+	}
+	srcQ, err := ch.QueueDeclare("ttl-dlx-src", false, false, false, false, args)
+	if err != nil {
+		t.Fatalf("declare source queue: %v", err)
+	}
+
+	// Publish a message.
+	if err := ch.PublishWithContext(context.Background(), "", srcQ.Name, false, false, amqp.Publishing{
+		Body: []byte("ttl-dead-letter"),
+	}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// Wait for expiry, then trigger lazy expiry via basic.get.
+	time.Sleep(100 * time.Millisecond)
+
+	_, ok, err := ch.Get(srcQ.Name, true)
+	if err != nil {
+		t.Fatalf("get from source: %v", err)
+	}
+	if ok {
+		t.Error("expected source queue empty after TTL expiry")
+	}
+
+	// Give the DLX publish time to propagate.
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify the message landed in the DLQ.
+	dlMsg, ok, err := ch.Get(dlq.Name, true)
+	if err != nil {
+		t.Fatalf("get from dlq: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected message in dead-letter queue after TTL expiry")
+	}
+	if string(dlMsg.Body) != "ttl-dead-letter" {
+		t.Errorf("dlq body = %q, want %q", string(dlMsg.Body), "ttl-dead-letter")
+	}
+}
+
+func TestGuarantee_PerMessageTTL(t *testing.T) {
+	t.Parallel()
+
+	brk := startTestBroker(t)
+	conn := dialBroker(t, brk)
+
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("open channel: %v", err)
+	}
+
+	queue, err := ch.QueueDeclare("per-msg-ttl-test", false, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("declare queue: %v", err)
+	}
+
+	// Publish a message with per-message expiration of 100ms.
+	if err := ch.PublishWithContext(context.Background(), "", queue.Name, false, false, amqp.Publishing{
+		Expiration: "100",
+		Body:       []byte("per-msg-expire"),
+	}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// Also publish a message without expiration.
+	if err := ch.PublishWithContext(context.Background(), "", queue.Name, false, false, amqp.Publishing{
+		Body: []byte("no-expire"),
+	}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// Wait for per-message TTL to expire.
+	time.Sleep(200 * time.Millisecond)
+
+	// The first message should be expired; the second should survive.
+	msg, ok, err := ch.Get(queue.Name, true)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected at least one message")
+	}
+	if string(msg.Body) != "no-expire" {
+		t.Errorf("expected non-expiring message, got %q", string(msg.Body))
+	}
+
+	// No more messages.
+	_, ok, err = ch.Get(queue.Name, true)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if ok {
+		t.Error("expected no more messages")
+	}
+}
