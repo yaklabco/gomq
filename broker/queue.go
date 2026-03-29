@@ -25,7 +25,7 @@ type Queue struct {
 	arguments  map[string]interface{}
 	store      *storage.MessageStore
 	dataDir    string
-	consumers  []*Consumer
+	consumers  []*consumerStub
 
 	// Signaling: non-blocking send after each successful publish.
 	msgNotify chan struct{}
@@ -47,8 +47,8 @@ type Queue struct {
 	markedForDelete atomic.Bool
 }
 
-// Consumer is a minimal consumer stub tracked by the queue.
-type Consumer struct {
+// consumerStub is a minimal consumer record tracked by the queue.
+type consumerStub struct {
 	Tag       string
 	Queue     *Queue
 	NoAck     bool
@@ -205,7 +205,7 @@ func (q *Queue) Len() uint32 {
 // AddConsumer registers a consumer with the queue. It returns an error if
 // an exclusive consumer already exists or the new consumer requests exclusivity
 // when other consumers are present.
-func (q *Queue) AddConsumer(consumer *Consumer) error {
+func (q *Queue) AddConsumer(consumer *consumerStub) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 

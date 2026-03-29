@@ -354,7 +354,7 @@ func TestVHost_DeleteQueue_IfUnused(t *testing.T) {
 	}
 
 	// Add a consumer to make the queue "used".
-	consumer := &Consumer{Tag: "c1", Queue: queue, notify: make(chan struct{}, 1)}
+	consumer := &consumerStub{Tag: "c1", Queue: queue, notify: make(chan struct{}, 1)}
 	if addErr := queue.AddConsumer(consumer); addErr != nil {
 		t.Fatalf("AddConsumer() error: %v", addErr)
 	}
