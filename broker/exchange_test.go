@@ -339,3 +339,199 @@ func TestTopicExchange_Type(t *testing.T) {
 		t.Errorf("Type() = %q, want %q", got, "topic")
 	}
 }
+
+// --- Headers Exchange Tests ---
+
+func TestHeadersExchange_MatchAll(t *testing.T) {
+	t.Parallel()
+
+	ex := NewHeadersExchange("headers-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	bindArgs := map[string]interface{}{
+		"x-match": "all",
+		"format":  "pdf",
+		"type":    "report",
+	}
+
+	if err := ex.Bind(dest, "", bindArgs); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	// Both headers present: should match.
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format": "pdf",
+			"type":   "report",
+		},
+	}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match when all headers present")
+	}
+
+	// Missing one header: should not match.
+	results = make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format": "pdf",
+		},
+	}, results)
+
+	if len(results) != 0 {
+		t.Error("expected no match when not all headers present")
+	}
+}
+
+func TestHeadersExchange_MatchAny(t *testing.T) {
+	t.Parallel()
+
+	ex := NewHeadersExchange("headers-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	bindArgs := map[string]interface{}{
+		"x-match": "any",
+		"format":  "pdf",
+		"type":    "report",
+	}
+
+	if err := ex.Bind(dest, "", bindArgs); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	// One matching header: should match.
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format": "pdf",
+		},
+	}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match when at least one header matches")
+	}
+
+	// No matching header: should not match.
+	results = make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"color": "blue",
+		},
+	}, results)
+
+	if len(results) != 0 {
+		t.Error("expected no match when no headers match")
+	}
+}
+
+func TestHeadersExchange_DefaultMatchAll(t *testing.T) {
+	t.Parallel()
+
+	ex := NewHeadersExchange("headers-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	// No x-match specified, should default to "all".
+	bindArgs := map[string]interface{}{
+		"format": "pdf",
+		"type":   "report",
+	}
+
+	if err := ex.Bind(dest, "", bindArgs); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	// Only one header: should not match (all required).
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format": "pdf",
+		},
+	}, results)
+
+	if len(results) != 0 {
+		t.Error("expected no match with default 'all' and missing header")
+	}
+
+	// Both headers present: should match.
+	results = make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format": "pdf",
+			"type":   "report",
+		},
+	}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match when all headers present with default 'all'")
+	}
+}
+
+func TestHeadersExchange_XMatchNotUsedForMatching(t *testing.T) {
+	t.Parallel()
+
+	ex := NewHeadersExchange("headers-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	bindArgs := map[string]interface{}{
+		"x-match": "all",
+		"format":  "pdf",
+	}
+
+	if err := ex.Bind(dest, "", bindArgs); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	// Message has format header but not x-match: should still match
+	// because x-match is skipped during comparison.
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format": "pdf",
+		},
+	}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match: x-match should be skipped during comparison")
+	}
+}
+
+func TestHeadersExchange_ExtraMessageHeaders(t *testing.T) {
+	t.Parallel()
+
+	ex := NewHeadersExchange("headers-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	bindArgs := map[string]interface{}{
+		"x-match": "all",
+		"format":  "pdf",
+	}
+
+	if err := ex.Bind(dest, "", bindArgs); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	// Extra headers in message should not prevent matching.
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{
+		Headers: map[string]interface{}{
+			"format":   "pdf",
+			"priority": "high",
+			"source":   "api",
+		},
+	}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match: extra message headers should be ignored")
+	}
+}
+
+func TestHeadersExchange_Type(t *testing.T) {
+	t.Parallel()
+
+	ex := NewHeadersExchange("headers-test", false, false)
+
+	if got := ex.Type(); got != "headers" {
+		t.Errorf("Type() = %q, want %q", got, "headers")
+	}
+}
