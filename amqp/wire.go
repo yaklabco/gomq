@@ -35,6 +35,14 @@ func (wr *wireReader) readUint32() (uint32, error) {
 	return binary.BigEndian.Uint32(buf[:]), nil
 }
 
+func (wr *wireReader) readUint64() (uint64, error) {
+	var buf [sizeUint64]byte
+	if _, err := io.ReadFull(wr.rd, buf[:]); err != nil {
+		return 0, fmt.Errorf("read uint64: %w", err)
+	}
+	return binary.BigEndian.Uint64(buf[:]), nil
+}
+
 // readShortstr reads a 1-byte length prefixed string.
 func (wr *wireReader) readShortstr() (string, error) {
 	slen, err := wr.readUint8()
@@ -108,6 +116,15 @@ func (ww *wireWriter) writeUint32(val uint32) error {
 	binary.BigEndian.PutUint32(buf[:], val)
 	if _, err := ww.wt.Write(buf[:]); err != nil {
 		return fmt.Errorf("write uint32: %w", err)
+	}
+	return nil
+}
+
+func (ww *wireWriter) writeUint64(val uint64) error {
+	var buf [sizeUint64]byte
+	binary.BigEndian.PutUint64(buf[:], val)
+	if _, err := ww.wt.Write(buf[:]); err != nil {
+		return fmt.Errorf("write uint64: %w", err)
 	}
 	return nil
 }

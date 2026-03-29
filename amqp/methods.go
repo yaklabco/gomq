@@ -13,44 +13,86 @@ type Method interface {
 	Write(w io.Writer) error
 }
 
-// MethodByID returns a zero-value Method for the given method ID.
-func MethodByID(id uint32) (Method, error) {
-	switch id {
+// methodFactory maps method IDs to factory functions that create zero-value Method instances.
+//
+//nolint:gochecknoglobals // read-only registry initialized once
+var methodFactory = map[uint32]func() Method{
 	// Connection.
-	case MethodConnectionStart:
-		return &ConnectionStart{}, nil
-	case MethodConnectionStartOk:
-		return &ConnectionStartOk{}, nil
-	case MethodConnectionTune:
-		return &ConnectionTune{}, nil
-	case MethodConnectionTuneOk:
-		return &ConnectionTuneOk{}, nil
-	case MethodConnectionOpen:
-		return &ConnectionOpen{}, nil
-	case MethodConnectionOpenOk:
-		return &ConnectionOpenOk{}, nil
-	case MethodConnectionClose:
-		return &ConnectionClose{}, nil
-	case MethodConnectionCloseOk:
-		return &ConnectionCloseOk{}, nil
+	MethodConnectionStart:   func() Method { return &ConnectionStart{} },
+	MethodConnectionStartOk: func() Method { return &ConnectionStartOk{} },
+	MethodConnectionTune:    func() Method { return &ConnectionTune{} },
+	MethodConnectionTuneOk:  func() Method { return &ConnectionTuneOk{} },
+	MethodConnectionOpen:    func() Method { return &ConnectionOpen{} },
+	MethodConnectionOpenOk:  func() Method { return &ConnectionOpenOk{} },
+	MethodConnectionClose:   func() Method { return &ConnectionClose{} },
+	MethodConnectionCloseOk: func() Method { return &ConnectionCloseOk{} },
 
 	// Channel.
-	case MethodChannelOpen:
-		return &ChannelOpen{}, nil
-	case MethodChannelOpenOk:
-		return &ChannelOpenOk{}, nil
-	case MethodChannelFlow:
-		return &ChannelFlow{}, nil
-	case MethodChannelFlowOk:
-		return &ChannelFlowOk{}, nil
-	case MethodChannelClose:
-		return &ChannelClose{}, nil
-	case MethodChannelCloseOk:
-		return &ChannelCloseOk{}, nil
+	MethodChannelOpen:    func() Method { return &ChannelOpen{} },
+	MethodChannelOpenOk:  func() Method { return &ChannelOpenOk{} },
+	MethodChannelFlow:    func() Method { return &ChannelFlow{} },
+	MethodChannelFlowOk:  func() Method { return &ChannelFlowOk{} },
+	MethodChannelClose:   func() Method { return &ChannelClose{} },
+	MethodChannelCloseOk: func() Method { return &ChannelCloseOk{} },
 
-	default:
+	// Exchange.
+	MethodExchangeDeclare:   func() Method { return &ExchangeDeclare{} },
+	MethodExchangeDeclareOk: func() Method { return &ExchangeDeclareOk{} },
+	MethodExchangeDelete:    func() Method { return &ExchangeDelete{} },
+	MethodExchangeDeleteOk:  func() Method { return &ExchangeDeleteOk{} },
+
+	// Queue.
+	MethodQueueDeclare:   func() Method { return &QueueDeclare{} },
+	MethodQueueDeclareOk: func() Method { return &QueueDeclareOk{} },
+	MethodQueueBind:      func() Method { return &QueueBind{} },
+	MethodQueueBindOk:    func() Method { return &QueueBindOk{} },
+	MethodQueueUnbind:    func() Method { return &QueueUnbind{} },
+	MethodQueueUnbindOk:  func() Method { return &QueueUnbindOk{} },
+	MethodQueuePurge:     func() Method { return &QueuePurge{} },
+	MethodQueuePurgeOk:   func() Method { return &QueuePurgeOk{} },
+	MethodQueueDelete:    func() Method { return &QueueDelete{} },
+	MethodQueueDeleteOk:  func() Method { return &QueueDeleteOk{} },
+
+	// Basic.
+	MethodBasicQos:          func() Method { return &BasicQos{} },
+	MethodBasicQosOk:        func() Method { return &BasicQosOk{} },
+	MethodBasicConsume:      func() Method { return &BasicConsume{} },
+	MethodBasicConsumeOk:    func() Method { return &BasicConsumeOk{} },
+	MethodBasicCancel:       func() Method { return &BasicCancel{} },
+	MethodBasicCancelOk:     func() Method { return &BasicCancelOk{} },
+	MethodBasicPublish:      func() Method { return &BasicPublish{} },
+	MethodBasicReturn:       func() Method { return &BasicReturn{} },
+	MethodBasicDeliver:      func() Method { return &BasicDeliver{} },
+	MethodBasicGet:          func() Method { return &BasicGet{} },
+	MethodBasicGetOk:        func() Method { return &BasicGetOk{} },
+	MethodBasicGetEmpty:     func() Method { return &BasicGetEmpty{} },
+	MethodBasicAck:          func() Method { return &BasicAck{} },
+	MethodBasicReject:       func() Method { return &BasicReject{} },
+	MethodBasicNack:         func() Method { return &BasicNack{} },
+	MethodBasicRecoverAsync: func() Method { return &BasicRecoverAsync{} },
+	MethodBasicRecover:      func() Method { return &BasicRecover{} },
+	MethodBasicRecoverOk:    func() Method { return &BasicRecoverOk{} },
+
+	// Tx.
+	MethodTxSelect:     func() Method { return &TxSelect{} },
+	MethodTxSelectOk:   func() Method { return &TxSelectOk{} },
+	MethodTxCommit:     func() Method { return &TxCommit{} },
+	MethodTxCommitOk:   func() Method { return &TxCommitOk{} },
+	MethodTxRollback:   func() Method { return &TxRollback{} },
+	MethodTxRollbackOk: func() Method { return &TxRollbackOk{} },
+
+	// Confirm.
+	MethodConfirmSelect:   func() Method { return &ConfirmSelect{} },
+	MethodConfirmSelectOk: func() Method { return &ConfirmSelectOk{} },
+}
+
+// MethodByID returns a zero-value Method for the given method ID.
+func MethodByID(id uint32) (Method, error) {
+	factory, ok := methodFactory[id]
+	if !ok {
 		return nil, fmt.Errorf("unknown method ID: 0x%08X", id)
 	}
+	return factory(), nil
 }
 
 // --- Connection methods ---

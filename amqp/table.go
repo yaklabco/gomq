@@ -25,6 +25,15 @@ const (
 	maxShortStr = 255
 )
 
+// Bit positions for packing consecutive bool fields into a single octet.
+const (
+	bit0 = 1 << iota
+	bit1
+	bit2
+	bit3
+	bit4
+)
+
 // Sentinel errors for table codec failures.
 var (
 	errBufferTooSmall = errors.New("buffer too small")
