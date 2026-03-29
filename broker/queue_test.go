@@ -170,7 +170,7 @@ func TestQueue_ExclusiveConsumerRejectsSecond(t *testing.T) {
 	t.Parallel()
 	queue := newTestQueue(t, "exclusive-q", nil)
 
-	c1 := &Consumer{
+	c1 := &consumerStub{
 		Tag:       "consumer-1",
 		Queue:     queue,
 		Exclusive: true,
@@ -180,7 +180,7 @@ func TestQueue_ExclusiveConsumerRejectsSecond(t *testing.T) {
 		t.Fatalf("AddConsumer(c1) error: %v", err)
 	}
 
-	c2 := &Consumer{
+	c2 := &consumerStub{
 		Tag:       "consumer-2",
 		Queue:     queue,
 		Exclusive: false,
@@ -195,8 +195,8 @@ func TestQueue_ConsumerAddRemove(t *testing.T) {
 	t.Parallel()
 	queue := newTestQueue(t, "consumer-q", nil)
 
-	c1 := &Consumer{Tag: "c1", Queue: queue, notify: make(chan struct{}, 1)}
-	c2 := &Consumer{Tag: "c2", Queue: queue, notify: make(chan struct{}, 1)}
+	c1 := &consumerStub{Tag: "c1", Queue: queue, notify: make(chan struct{}, 1)}
+	c2 := &consumerStub{Tag: "c2", Queue: queue, notify: make(chan struct{}, 1)}
 
 	if err := queue.AddConsumer(c1); err != nil {
 		t.Fatalf("AddConsumer(c1) error: %v", err)
@@ -225,7 +225,7 @@ func TestQueue_AutoDeleteMarked(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = queue.Close() })
 
-	consumer := &Consumer{Tag: "c1", Queue: queue, notify: make(chan struct{}, 1)}
+	consumer := &consumerStub{Tag: "c1", Queue: queue, notify: make(chan struct{}, 1)}
 	if err := queue.AddConsumer(consumer); err != nil {
 		t.Fatalf("AddConsumer() error: %v", err)
 	}
