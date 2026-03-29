@@ -5,3 +5,4 @@ hooks:
     - target: lint:go
   pre-push:
     - target: test:all
+    - target: test:gate

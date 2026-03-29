@@ -131,6 +131,18 @@ func (Test) Go() error {
 	)
 }
 
+// Gate runs the full test suite including correctness guarantees and
+// performance regression gates.
+func (Test) Gate() error {
+	return sh.RunV("gotestsum",
+		"-f", "pkgname-and-test-fails",
+		"--",
+		"-v", "-race", "./...",
+		"-count", "1",
+		"-run", "TestGuarantee|TestPerfGate|TestIntegration",
+	)
+}
+
 // Fmt groups formatting targets.
 type Fmt st.Namespace
 
