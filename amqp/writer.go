@@ -103,6 +103,30 @@ func (w *Writer) WriteBody(channel uint16, body []byte) error {
 	return nil
 }
 
+// WriteDelivery writes a complete BasicDeliver + content header + body as a
+// single batch with one Flush. Method and header frames are encoded directly
+// into scratch, avoiding intermediate encoding buffers. This is the hot-path
+// writer for consumer delivery.
+func (w *Writer) WriteDelivery(channel uint16, deliver *BasicDeliver, classID uint16, bodySize uint64, props *Properties, body []byte) error {
+	// 1. Write the method frame (BasicDeliver).
+	if err := w.WriteMethod(channel, deliver); err != nil {
+		return fmt.Errorf("write delivery method: %w", err)
+	}
+
+	// 2. Write the content header frame.
+	if err := w.WriteHeader(channel, classID, bodySize, props); err != nil {
+		return fmt.Errorf("write delivery header: %w", err)
+	}
+
+	// 3. Write body frame(s).
+	if err := w.WriteBody(channel, body); err != nil {
+		return fmt.Errorf("write delivery body: %w", err)
+	}
+
+	// 4. Single flush for the entire delivery.
+	return w.Flush()
+}
+
 // WriteHeartbeat writes a heartbeat frame (channel=0, size=0).
 func (w *Writer) WriteHeartbeat() error {
 	return w.writeFrame(FrameHeartbeat, 0, nil)

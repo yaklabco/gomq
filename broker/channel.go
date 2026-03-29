@@ -334,6 +334,8 @@ func (ch *Channel) handleBasicConsume(consume *amqp.BasicConsume) error {
 	consumer := NewConsumer(tag, queue, noAck, consume.Exclusive, prefetch,
 		func(env *storage.Envelope, deliveryTag uint64) error {
 			// Send BasicDeliver + content header + body in a single flush.
+			// The envelope's Body may alias an mmap region (zero-copy path),
+			// so we write to the socket here while the region is still valid.
 			props := storagePropsToAMQP(env.Message.Properties)
 			if sendErr := ch.sendDelivery(chID, &amqp.BasicDeliver{
 				ConsumerTag: tag,
@@ -346,6 +348,7 @@ func (ch *Channel) handleBasicConsume(consume *amqp.BasicConsume) error {
 			}
 
 			if !noAck {
+				// Copy only metadata needed for ack processing — not the body.
 				ch.mu.Lock()
 				ch.unacked = append(ch.unacked, Unack{
 					DeliveryTag: deliveryTag,

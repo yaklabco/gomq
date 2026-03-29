@@ -107,24 +107,25 @@ func (c *Consumer) run(ctx context.Context) {
 			return
 		}
 
-		// Try to shift a message immediately; only block if the queue is empty.
-		env, ok := c.queue.Get(c.noAck)
-		if !ok {
-			if !c.queue.WaitForMessage(ctx) {
-				return
-			}
-			env, ok = c.queue.Get(c.noAck)
-			if !ok {
-				continue
-			}
-		}
-
 		deliveryTag++
+		tag := deliveryTag
 
-		if err := c.deliverFn(env, deliveryTag); err != nil {
+		// Try to shift a message using zero-copy path; only block if the queue is empty.
+		ok, err := c.queue.GetFunc(c.noAck, func(env *storage.Envelope) error {
+			return c.deliverFn(env, tag)
+		})
+		if err != nil {
 			// Delivery failed; in a real broker this would nack or
 			// close the channel. For now we stop the consumer.
 			return
+		}
+		if !ok {
+			// Queue was empty — roll back the tag since nothing was delivered.
+			deliveryTag--
+			if !c.queue.WaitForMessage(ctx) {
+				return
+			}
+			continue
 		}
 
 		if !c.noAck {

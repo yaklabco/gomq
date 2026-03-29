@@ -222,6 +222,78 @@ func TestBodyFrame_largeBody_multipleFrames(t *testing.T) {
 	}
 }
 
+func TestWriteDelivery_roundTrip(t *testing.T) {
+	t.Parallel()
+
+	deliver := &BasicDeliver{
+		ConsumerTag: "ctag-1",
+		DeliveryTag: 42,
+		Redelivered: false,
+		Exchange:    "amq.direct",
+		RoutingKey:  "test.key",
+	}
+	props := &Properties{ContentType: "text/plain"}
+	body := []byte("hello delivery")
+
+	var buf bytes.Buffer
+	wr := NewWriter(&buf, int(FrameMinSize))
+
+	if err := wr.WriteDelivery(1, deliver, ClassBasic, uint64(len(body)), props, body); err != nil {
+		t.Fatalf("WriteDelivery() error = %v", err)
+	}
+
+	rd := NewReader(&buf, 131072)
+
+	// Frame 1: method (BasicDeliver).
+	frame, err := rd.ReadFrame()
+	if err != nil {
+		t.Fatalf("ReadFrame() method error = %v", err)
+	}
+	mf, ok := frame.(*MethodFrame)
+	if !ok {
+		t.Fatalf("frame 1 type = %T, want *MethodFrame", frame)
+	}
+	got, ok := mf.Method.(*BasicDeliver)
+	if !ok {
+		t.Fatalf("method type = %T, want *BasicDeliver", mf.Method)
+	}
+	if got.ConsumerTag != "ctag-1" {
+		t.Errorf("ConsumerTag = %q, want %q", got.ConsumerTag, "ctag-1")
+	}
+	if got.DeliveryTag != 42 {
+		t.Errorf("DeliveryTag = %d, want 42", got.DeliveryTag)
+	}
+
+	// Frame 2: content header.
+	frame, err = rd.ReadFrame()
+	if err != nil {
+		t.Fatalf("ReadFrame() header error = %v", err)
+	}
+	hf, ok := frame.(*HeaderFrame)
+	if !ok {
+		t.Fatalf("frame 2 type = %T, want *HeaderFrame", frame)
+	}
+	if hf.BodySize != uint64(len(body)) {
+		t.Errorf("BodySize = %d, want %d", hf.BodySize, len(body))
+	}
+	if hf.Properties.ContentType != "text/plain" {
+		t.Errorf("ContentType = %q, want %q", hf.Properties.ContentType, "text/plain")
+	}
+
+	// Frame 3: body.
+	frame, err = rd.ReadFrame()
+	if err != nil {
+		t.Fatalf("ReadFrame() body error = %v", err)
+	}
+	bf, ok := frame.(*BodyFrame)
+	if !ok {
+		t.Fatalf("frame 3 type = %T, want *BodyFrame", frame)
+	}
+	if !bytes.Equal(bf.Body, body) {
+		t.Errorf("Body = %q, want %q", bf.Body, body)
+	}
+}
+
 func TestMethodFrame_onChannel(t *testing.T) {
 	t.Parallel()
 

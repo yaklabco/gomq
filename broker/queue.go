@@ -301,6 +301,35 @@ func (q *Queue) Get(noAck bool) (*storage.Envelope, bool) {
 	return env, true
 }
 
+// GetFunc shifts one message from the front of the queue and calls fn with the
+// envelope. The envelope's Body may alias the mmap region and is only valid
+// during fn. If fn returns an error, the message is not consumed and remains
+// available. Returns false when the queue is empty.
+func (q *Queue) GetFunc(noAck bool, fn func(env *storage.Envelope) error) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	var sp storage.SegmentPosition
+	ok, err := q.store.ShiftFunc(func(env *storage.Envelope) error {
+		sp = env.SegmentPosition
+		return fn(env)
+	})
+	if !ok || err != nil {
+		return false, err
+	}
+
+	q.deliverCount.Add(1)
+
+	if noAck {
+		// Auto-ack after ShiftFunc returns (store lock released).
+		if delErr := q.store.Delete(sp); delErr == nil {
+			q.ackCount.Add(1)
+		}
+	}
+
+	return true, nil
+}
+
 // Ack acknowledges a message, deleting it from the store.
 func (q *Queue) Ack(sp storage.SegmentPosition) error {
 	if err := q.store.Delete(sp); err != nil {

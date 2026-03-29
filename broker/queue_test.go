@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -379,5 +380,81 @@ func TestQueue_WaitForMessageCancelledContext(t *testing.T) {
 
 	if queue.WaitForMessage(ctx) {
 		t.Error("WaitForMessage() returned true on cancelled context, want false")
+	}
+}
+
+func TestQueue_GetFunc_Roundtrip(t *testing.T) {
+	t.Parallel()
+	queue := newTestQueue(t, "getfunc-q", nil)
+
+	msg := makeStorageMsg("amq.direct", "test.key", "hello getfunc")
+	ok, err := queue.PublishSync(msg)
+	if err != nil {
+		t.Fatalf("PublishSync() error: %v", err)
+	}
+	if !ok {
+		t.Fatal("PublishSync() returned false")
+	}
+
+	var sawExchange string
+	var sawBody string
+	ok, err = queue.GetFunc(true, func(env *storage.Envelope) error {
+		sawExchange = env.Message.ExchangeName
+		sawBody = string(env.Message.Body)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("GetFunc() error: %v", err)
+	}
+	if !ok {
+		t.Fatal("GetFunc() returned false, want true")
+	}
+	if sawExchange != "amq.direct" {
+		t.Errorf("ExchangeName = %q, want %q", sawExchange, "amq.direct")
+	}
+	if sawBody != "hello getfunc" {
+		t.Errorf("Body = %q, want %q", sawBody, "hello getfunc")
+	}
+}
+
+func TestQueue_GetFunc_Empty(t *testing.T) {
+	t.Parallel()
+	queue := newTestQueue(t, "getfunc-empty-q", nil)
+
+	ok, err := queue.GetFunc(true, func(_ *storage.Envelope) error {
+		t.Fatal("fn should not be called on empty queue")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("GetFunc() error: %v", err)
+	}
+	if ok {
+		t.Error("GetFunc() returned true on empty queue, want false")
+	}
+}
+
+func TestQueue_GetFunc_FnError(t *testing.T) {
+	t.Parallel()
+	queue := newTestQueue(t, "getfunc-err-q", nil)
+
+	msg := makeStorageMsg("ex", "rk", "body")
+	if _, err := queue.PublishSync(msg); err != nil {
+		t.Fatalf("PublishSync() error: %v", err)
+	}
+
+	errSent := errors.New("callback failed")
+	ok, err := queue.GetFunc(true, func(_ *storage.Envelope) error {
+		return errSent
+	})
+	if !errors.Is(err, errSent) {
+		t.Errorf("GetFunc() error = %v, want %v", err, errSent)
+	}
+	if ok {
+		t.Error("GetFunc() returned true on fn error, want false")
+	}
+
+	// Message should still be available since fn failed.
+	if queue.Len() != 1 {
+		t.Errorf("Len() after failed GetFunc = %d, want 1", queue.Len())
 	}
 }
