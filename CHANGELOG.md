@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release automation with goreleaser
 - Docker image published to ghcr.io
 - Cross-platform binaries (linux/darwin × amd64/arm64)
+- Nack/reject with requeue support (messages redelivered with Redelivered flag)
+- Dead letter exchange support (x-dead-letter-exchange, x-dead-letter-routing-key)
+- x-death header on dead-lettered messages with queue, reason, and routing keys
+- Queue-level message TTL enforcement (x-message-ttl)
+- Per-message TTL via AMQP expiration property
+- Queue expiry timer (x-expires) marks unused queues for deletion
+- Headers and expiration persistence in message store binary format
 
 ## [0.1.0] - 2026-03-29
 
