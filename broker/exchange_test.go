@@ -176,3 +176,166 @@ func TestFanoutExchange_Type(t *testing.T) {
 		t.Errorf("Type() = %q, want %q", got, "fanout")
 	}
 }
+
+// --- Topic Exchange Tests ---
+
+func TestTopicExchange_HashMatchesZeroOrMore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		bindKey    string
+		routingKey string
+		wantMatch  bool
+	}{
+		{name: "hash suffix matches one word", bindKey: "stock.#", routingKey: "stock.usd", wantMatch: true},
+		{name: "hash suffix matches two words", bindKey: "stock.#", routingKey: "stock.usd.nyse", wantMatch: true},
+		{name: "hash suffix matches zero words", bindKey: "stock.#", routingKey: "stock", wantMatch: true},
+		{name: "hash alone matches everything", bindKey: "#", routingKey: "stock.usd.nyse", wantMatch: true},
+		{name: "hash alone matches single word", bindKey: "#", routingKey: "stock", wantMatch: true},
+		{name: "hash alone matches empty string", bindKey: "#", routingKey: "", wantMatch: true},
+		{name: "hash prefix matches one word", bindKey: "#.nyse", routingKey: "nyse", wantMatch: true},
+		{name: "hash prefix matches two words", bindKey: "#.nyse", routingKey: "stock.nyse", wantMatch: true},
+		{name: "hash prefix matches three words", bindKey: "#.nyse", routingKey: "stock.usd.nyse", wantMatch: true},
+		{name: "hash prefix no match wrong suffix", bindKey: "#.nyse", routingKey: "stock.usd.london", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ex := NewTopicExchange("topic-test", false, false)
+			dest := &testDest{name: "queue-1"}
+
+			if err := ex.Bind(dest, tt.bindKey, nil); err != nil {
+				t.Fatalf("Bind() error: %v", err)
+			}
+
+			results := make(map[Destination]struct{})
+			ex.Route(&Message{RoutingKey: tt.routingKey}, results)
+
+			_, found := results[dest]
+			if found != tt.wantMatch {
+				t.Errorf("Route(%q) with bind key %q: got match=%v, want match=%v",
+					tt.routingKey, tt.bindKey, found, tt.wantMatch)
+			}
+		})
+	}
+}
+
+func TestTopicExchange_StarMatchesExactlyOne(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		bindKey    string
+		routingKey string
+		wantMatch  bool
+	}{
+		{name: "star matches one word", bindKey: "stock.*", routingKey: "stock.usd", wantMatch: true},
+		{name: "star no match zero words", bindKey: "stock.*", routingKey: "stock", wantMatch: false},
+		{name: "star no match two words", bindKey: "stock.*", routingKey: "stock.usd.nyse", wantMatch: false},
+		{name: "star middle segment", bindKey: "stock.*.nyse", routingKey: "stock.usd.nyse", wantMatch: true},
+		{name: "star middle no match wrong suffix", bindKey: "stock.*.nyse", routingKey: "stock.eur.london", wantMatch: false},
+		{name: "star alone matches one word", bindKey: "*", routingKey: "stock", wantMatch: true},
+		{name: "star alone no match two words", bindKey: "*", routingKey: "stock.usd", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ex := NewTopicExchange("topic-test", false, false)
+			dest := &testDest{name: "queue-1"}
+
+			if err := ex.Bind(dest, tt.bindKey, nil); err != nil {
+				t.Fatalf("Bind() error: %v", err)
+			}
+
+			results := make(map[Destination]struct{})
+			ex.Route(&Message{RoutingKey: tt.routingKey}, results)
+
+			_, found := results[dest]
+			if found != tt.wantMatch {
+				t.Errorf("Route(%q) with bind key %q: got match=%v, want match=%v",
+					tt.routingKey, tt.bindKey, found, tt.wantMatch)
+			}
+		})
+	}
+}
+
+func TestTopicExchange_ExactMatch(t *testing.T) {
+	t.Parallel()
+
+	ex := NewTopicExchange("topic-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	if err := ex.Bind(dest, "stock.usd", nil); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{RoutingKey: "stock.usd"}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match for exact routing key 'stock.usd'")
+	}
+
+	results = make(map[Destination]struct{})
+	ex.Route(&Message{RoutingKey: "stock.eur"}, results)
+
+	if len(results) != 0 {
+		t.Error("expected no match for 'stock.eur' with binding 'stock.usd'")
+	}
+}
+
+func TestTopicExchange_MultipleBindingsDedup(t *testing.T) {
+	t.Parallel()
+
+	ex := NewTopicExchange("topic-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	// Both patterns match "stock.usd", destination should appear only once
+	if err := ex.Bind(dest, "stock.*", nil); err != nil {
+		t.Fatalf("Bind(stock.*) error: %v", err)
+	}
+
+	if err := ex.Bind(dest, "stock.#", nil); err != nil {
+		t.Fatalf("Bind(stock.#) error: %v", err)
+	}
+
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{RoutingKey: "stock.usd"}, results)
+
+	if len(results) != 1 {
+		t.Errorf("expected destination to appear once, got %d", len(results))
+	}
+}
+
+func TestTopicExchange_EmptyRoutingKey(t *testing.T) {
+	t.Parallel()
+
+	ex := NewTopicExchange("topic-test", false, false)
+	dest := &testDest{name: "queue-1"}
+
+	if err := ex.Bind(dest, "", nil); err != nil {
+		t.Fatalf("Bind() error: %v", err)
+	}
+
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{RoutingKey: ""}, results)
+
+	if _, ok := results[dest]; !ok {
+		t.Error("expected match for empty routing key with empty binding key")
+	}
+}
+
+func TestTopicExchange_Type(t *testing.T) {
+	t.Parallel()
+
+	ex := NewTopicExchange("topic-test", false, false)
+
+	if got := ex.Type(); got != "topic" {
+		t.Errorf("Type() = %q, want %q", got, "topic")
+	}
+}
