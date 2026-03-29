@@ -5,25 +5,10 @@ package storage
 import (
 	"fmt"
 	"os"
-	"sync"
-	"sync/atomic"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
-
-// MFile is a memory-mapped file that supports append-only writes and random reads.
-// The file is mapped at a fixed capacity; on Close, it is truncated to the logical size.
-type MFile struct {
-	mu       sync.RWMutex
-	data     []byte
-	size     atomic.Int64
-	capacity int64
-	path     string
-	closed   atomic.Bool
-	deleted  atomic.Bool
-	readOnly bool
-}
 
 // OpenMFile creates or opens a memory-mapped file with the given capacity.
 // If the file already exists, its current size becomes the logical size and capacity
@@ -227,12 +212,6 @@ func (mf *MFile) Delete() {
 	_ = os.Remove(mf.path) // best-effort removal; file may already be gone
 }
 
-// Resize changes the logical size without altering the on-disk capacity.
-// Reads beyond the new size will be rejected.
-func (mf *MFile) Resize(newSize int64) {
-	mf.size.Store(newSize)
-}
-
 // Advise issues an madvise hint for the entire mapped region.
 func (mf *MFile) Advise(hint Advice) error {
 	if mf.closed.Load() {
@@ -250,19 +229,4 @@ func (mf *MFile) Advise(hint Advice) error {
 		return fmt.Errorf("madvise %s hint=%d: %w", mf.path, hint, err)
 	}
 	return nil
-}
-
-// Size returns the current logical size (bytes written).
-func (mf *MFile) Size() int64 {
-	return mf.size.Load()
-}
-
-// Capacity returns the total mapped capacity.
-func (mf *MFile) Capacity() int64 {
-	return mf.capacity
-}
-
-// Path returns the file path.
-func (mf *MFile) Path() string {
-	return mf.path
 }

@@ -214,6 +214,54 @@ func TestMessageStore_EmptyShift(t *testing.T) {
 	}
 }
 
+func TestMessageStore_CrashRecovery(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// Open store and write messages.
+	store, err := OpenMessageStore(dir, 4096)
+	if err != nil {
+		t.Fatalf("OpenMessageStore() error: %v", err)
+	}
+	for i := range 3 {
+		if _, err := store.Push(makeMsg("ex", "rk", "msg"+string(rune('A'+i)))); err != nil {
+			t.Fatalf("Push() error: %v", err)
+		}
+	}
+
+	// Simulate crash: do NOT call Close(). The segment file remains at full
+	// capacity (4096 bytes) instead of being truncated to the logical size.
+	// This leaves garbage/zero bytes after the last valid message.
+
+	// Reopen — loadStats should detect end-of-valid-data via zero timestamps
+	// and resize the segment so Shift does not read garbage.
+	store2, err := OpenMessageStore(dir, 4096)
+	if err != nil {
+		t.Fatalf("OpenMessageStore() reopen after crash error: %v", err)
+	}
+	defer func() { _ = store2.Close() }()
+
+	if store2.Len() != 3 {
+		t.Errorf("Len() after crash recovery = %d, want 3", store2.Len())
+	}
+
+	for i := range 3 {
+		env, ok := store2.Shift()
+		if !ok {
+			t.Fatalf("Shift() returned false at i=%d after crash recovery", i)
+		}
+		want := "msg" + string(rune('A'+i))
+		if string(env.Message.Body) != want {
+			t.Errorf("Shift() body = %q, want %q", env.Message.Body, want)
+		}
+	}
+
+	// No more messages after the valid ones.
+	if _, ok := store2.Shift(); ok {
+		t.Error("Shift() should return false after all valid messages consumed")
+	}
+}
+
 func TestMessageStore_GetMessage(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, 4096)

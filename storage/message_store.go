@@ -177,7 +177,10 @@ func (ms *MessageStore) Delete(sp SegmentPosition) error {
 	if idx < len(del) && del[idx] == sp.Position {
 		return nil // already deleted
 	}
-	ms.deleted[sp.Segment] = append(del[:idx], append([]uint32{sp.Position}, del[idx:]...)...)
+	del = append(del, 0)
+	copy(del[idx+1:], del[idx:])
+	del[idx] = sp.Position
+	ms.deleted[sp.Segment] = del
 
 	// Clean up fully-acked segments (not the current write segment).
 	if sp.Segment != ms.wfileID {
@@ -464,20 +467,12 @@ func (ms *MessageStore) loadStats() {
 
 		for pos < fileSize {
 			var msgSize int
-			err := mf.ReadFunc(pos, min(int64(MinMessageSize), fileSize-pos), func(buf []byte) error {
+			remaining := fileSize - pos
+			err := mf.ReadFunc(pos, remaining, func(buf []byte) error {
 				// Check for zero timestamp indicating end of valid data.
 				if len(buf) >= 8 && binary.LittleEndian.Uint64(buf[:8]) == 0 {
 					return errEndOfData
 				}
-				return nil
-			})
-			if err != nil {
-				break
-			}
-
-			// Read enough to skip the message.
-			remaining := fileSize - pos
-			err = mf.ReadFunc(pos, remaining, func(buf []byte) error {
 				var skipErr error
 				msgSize, skipErr = SkipMessage(buf)
 				return skipErr
@@ -496,6 +491,10 @@ func (ms *MessageStore) loadStats() {
 		}
 
 		ms.msgCount[segID] = count
+
+		// Resize segment to last valid position to prevent reading garbage
+		// after a crash (matching LavinMQ's mfile.resize(pos) behavior).
+		mf.Resize(pos)
 	}
 
 	// Set the read position to the first undeleted message.
