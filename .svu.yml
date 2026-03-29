@@ -1,0 +1,5 @@
+always: true
+v0: true
+prefix: v
+tag.mode: all
+verbose: true

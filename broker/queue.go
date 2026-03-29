@@ -184,7 +184,7 @@ func (q *Queue) PublishSync(msg *storage.Message) (bool, error) {
 		_ = q.dropHead() //nolint:errcheck // best-effort overflow eviction
 	}
 
-	if q.maxLengthBytes > 0 && int64(q.store.ByteSize()) >= q.maxLengthBytes {
+	if q.maxLengthBytes > 0 && int64(q.store.ByteSize()) >= q.maxLengthBytes { //nolint:gosec // ByteSize practically bounded well below MaxInt64
 		if q.overflow == overflowReject {
 			return false, nil
 		}
@@ -265,7 +265,7 @@ func (q *Queue) publishToStore(msg *storage.Message) {
 	}
 
 	// Enforce max-length-bytes limit.
-	if q.maxLengthBytes > 0 && int64(q.store.ByteSize()) >= q.maxLengthBytes {
+	if q.maxLengthBytes > 0 && int64(q.store.ByteSize()) >= q.maxLengthBytes { //nolint:gosec // ByteSize practically bounded well below MaxInt64
 		if q.overflow == overflowReject {
 			return
 		}
@@ -358,7 +358,7 @@ func (q *Queue) Purge(limit int) int {
 // Len returns the number of messages in the queue, including those
 // buffered in the async inbox that have not yet been written to the store.
 func (q *Queue) Len() uint32 {
-	return q.store.Len() + uint32(len(q.inbox))
+	return q.store.Len() + uint32(len(q.inbox)) //nolint:gosec // inbox capacity is 4096
 }
 
 // AddConsumer registers a consumer with the queue. It returns an error if
@@ -531,7 +531,7 @@ func toInt64(v interface{}) int64 {
 	case int64:
 		return val
 	case uint64:
-		return int64(val)
+		return int64(val) //nolint:gosec // AMQP wire type reinterpretation
 	case int32:
 		return int64(val)
 	case uint32:

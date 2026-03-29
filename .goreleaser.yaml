@@ -1,0 +1,40 @@
+version: 2
+
+builds:
+  - id: gomq
+    main: ./cmd/gomq
+    binary: gomq
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: -s -w
+    env: [CGO_ENABLED=0]
+
+  - id: gomqperf
+    main: ./cmd/gomqperf
+    binary: gomqperf
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags: -s -w
+    env: [CGO_ENABLED=0]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+dockers_v2:
+  - id: gomq
+    dockerfile: Dockerfile
+    ids:
+      - gomq
+      - gomqperf
+    images:
+      - ghcr.io/jamesainslie/gomq
+    tags:
+      - "v{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64

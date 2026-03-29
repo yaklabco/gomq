@@ -58,7 +58,7 @@ func (r *Reader) ReadFrame() (Frame, error) {
 	}
 
 	// Reuse buffer, growing only when needed.
-	if uint32(cap(r.buf)) < payloadSize {
+	if uint32(cap(r.buf)) < payloadSize { //nolint:gosec // cap is always >= 0; max frame is 128KB
 		r.buf = make([]byte, payloadSize)
 	}
 	payload := r.buf[:payloadSize]

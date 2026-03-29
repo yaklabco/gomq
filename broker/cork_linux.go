@@ -24,6 +24,6 @@ func setCork(conn net.Conn, cork bool) {
 		val = 1
 	}
 	_ = raw.Control(func(fd uintptr) { //nolint:errcheck // best-effort optimization
-		_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_CORK, val) //nolint:errcheck // best-effort optimization
+		_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_CORK, val) //nolint:errcheck,gosec // best-effort optimization; fd fits int
 	})
 }

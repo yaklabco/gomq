@@ -36,6 +36,7 @@ func OpenMFile(path string, capacity int64) (*MFile, error) {
 		}
 	}
 
+	//nolint:gosec // file descriptor fits int on all supported platforms
 	data, err := syscall.Mmap(int(file.Fd()), 0, int(capacity), syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
 		return nil, fmt.Errorf("mmap %s: %w", path, err)
@@ -75,7 +76,7 @@ func OpenMFileReadOnly(path string) (*MFile, error) {
 		return mf, nil
 	}
 
-	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_SHARED)
+	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_SHARED) //nolint:gosec // file descriptor fits int on all supported platforms
 	if err != nil {
 		return nil, fmt.Errorf("mmap read-only %s: %w", path, err)
 	}

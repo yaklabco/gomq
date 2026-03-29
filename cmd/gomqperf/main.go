@@ -333,7 +333,7 @@ func runConsumer(ctx context.Context, uri string, cfg config, stats *StatsCollec
 			}
 			var latencyNs int64
 			if len(msg.Body) >= minMsgSize {
-				sent := int64(binary.LittleEndian.Uint64(msg.Body[:minMsgSize]))
+				sent := int64(binary.LittleEndian.Uint64(msg.Body[:minMsgSize])) //nolint:gosec // timestamp reinterpretation
 				latencyNs = time.Now().UnixNano() - sent
 			}
 			if !cfg.autoAck {

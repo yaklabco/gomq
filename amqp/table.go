@@ -120,7 +120,7 @@ func marshalFieldKey(buf []byte, key string) (int, error) {
 	if len(buf) < needed {
 		return 0, fmt.Errorf("field key: %w", errBufferTooSmall)
 	}
-	buf[0] = byte(len(key))
+	buf[0] = byte(len(key)) //nolint:gosec // AMQP shortstr; len validated <= 255 above
 	copy(buf[1:], key)
 	return needed, nil
 }
@@ -161,7 +161,7 @@ func marshalFieldValue(buf []byte, val any) (int, error) {
 			return 0, fmt.Errorf("int8: %w", errBufferTooSmall)
 		}
 		buf[0] = 'b'
-		buf[1] = byte(tv)
+		buf[1] = byte(tv) //nolint:gosec // AMQP wire protocol: int8 to byte reinterpretation
 		return 1 + sizeUint8, nil
 	case uint8:
 		if len(buf) < 1+sizeUint8 {
@@ -175,7 +175,7 @@ func marshalFieldValue(buf []byte, val any) (int, error) {
 			return 0, fmt.Errorf("int16: %w", errBufferTooSmall)
 		}
 		buf[0] = 'U'
-		binary.BigEndian.PutUint16(buf[1:], uint16(tv))
+		binary.BigEndian.PutUint16(buf[1:], uint16(tv)) //nolint:gosec // AMQP wire protocol: int16 to uint16 reinterpretation
 		return 1 + sizeUint16, nil
 	case uint16:
 		if len(buf) < 1+sizeUint16 {
@@ -189,7 +189,7 @@ func marshalFieldValue(buf []byte, val any) (int, error) {
 			return 0, fmt.Errorf("int32: %w", errBufferTooSmall)
 		}
 		buf[0] = 'I'
-		binary.BigEndian.PutUint32(buf[1:], uint32(tv))
+		binary.BigEndian.PutUint32(buf[1:], uint32(tv)) //nolint:gosec // AMQP wire protocol: int32 to uint32 reinterpretation
 		return 1 + sizeUint32, nil
 	case uint32:
 		if len(buf) < 1+sizeUint32 {
@@ -203,7 +203,7 @@ func marshalFieldValue(buf []byte, val any) (int, error) {
 			return 0, fmt.Errorf("int64: %w", errBufferTooSmall)
 		}
 		buf[0] = 'L'
-		binary.BigEndian.PutUint64(buf[1:], uint64(tv))
+		binary.BigEndian.PutUint64(buf[1:], uint64(tv)) //nolint:gosec // AMQP wire protocol: int64 to uint64 reinterpretation
 		return 1 + sizeUint64, nil
 	case uint64:
 		if len(buf) < 1+sizeUint64 {
@@ -252,7 +252,7 @@ func marshalLongstr(buf []byte, data []byte) (int, error) {
 		return 0, fmt.Errorf("longstr: %w", errBufferTooSmall)
 	}
 	buf[0] = 'S'
-	binary.BigEndian.PutUint32(buf[1:], uint32(len(data)))
+	binary.BigEndian.PutUint32(buf[1:], uint32(len(data))) //nolint:gosec // AMQP longstr length; bounded by frame size
 	copy(buf[1+sizeLongLen:], data)
 	return needed, nil
 }
@@ -263,7 +263,7 @@ func marshalByteArray(buf []byte, data []byte) (int, error) {
 		return 0, fmt.Errorf("byte array: %w", errBufferTooSmall)
 	}
 	buf[0] = 'x'
-	binary.BigEndian.PutUint32(buf[1:], uint32(len(data)))
+	binary.BigEndian.PutUint32(buf[1:], uint32(len(data))) //nolint:gosec // AMQP byte array length; bounded by frame size
 	copy(buf[1+sizeLongLen:], data)
 	return needed, nil
 }
@@ -319,7 +319,7 @@ func unmarshalFieldValue(buf []byte) (any, int, error) {
 		if len(payload) < sizeUint8 {
 			return nil, 0, fmt.Errorf("int8 value: %w", errBufferTooShort)
 		}
-		return int8(payload[0]), 1 + sizeUint8, nil
+		return int8(payload[0]), 1 + sizeUint8, nil //nolint:gosec // AMQP wire protocol: byte to int8 reinterpretation
 	case 'B':
 		if len(payload) < sizeUint8 {
 			return nil, 0, fmt.Errorf("uint8 value: %w", errBufferTooShort)
@@ -329,7 +329,7 @@ func unmarshalFieldValue(buf []byte) (any, int, error) {
 		if len(payload) < sizeUint16 {
 			return nil, 0, fmt.Errorf("int16 value: %w", errBufferTooShort)
 		}
-		return int16(binary.BigEndian.Uint16(payload[:sizeUint16])), 1 + sizeUint16, nil
+		return int16(binary.BigEndian.Uint16(payload[:sizeUint16])), 1 + sizeUint16, nil //nolint:gosec // AMQP wire protocol: uint16 to int16 reinterpretation
 	case 'u':
 		if len(payload) < sizeUint16 {
 			return nil, 0, fmt.Errorf("uint16 value: %w", errBufferTooShort)
@@ -339,7 +339,7 @@ func unmarshalFieldValue(buf []byte) (any, int, error) {
 		if len(payload) < sizeUint32 {
 			return nil, 0, fmt.Errorf("int32 value: %w", errBufferTooShort)
 		}
-		return int32(binary.BigEndian.Uint32(payload[:sizeUint32])), 1 + sizeUint32, nil
+		return int32(binary.BigEndian.Uint32(payload[:sizeUint32])), 1 + sizeUint32, nil //nolint:gosec // AMQP wire protocol: uint32 to int32 reinterpretation
 	case 'i':
 		if len(payload) < sizeUint32 {
 			return nil, 0, fmt.Errorf("uint32 value: %w", errBufferTooShort)
@@ -349,7 +349,7 @@ func unmarshalFieldValue(buf []byte) (any, int, error) {
 		if len(payload) < sizeUint64 {
 			return nil, 0, fmt.Errorf("int64 value: %w", errBufferTooShort)
 		}
-		return int64(binary.BigEndian.Uint64(payload[:sizeUint64])), 1 + sizeUint64, nil
+		return int64(binary.BigEndian.Uint64(payload[:sizeUint64])), 1 + sizeUint64, nil //nolint:gosec // AMQP wire protocol: uint64 to int64 reinterpretation
 	case 'l':
 		if len(payload) < sizeUint64 {
 			return nil, 0, fmt.Errorf("uint64 value: %w", errBufferTooShort)

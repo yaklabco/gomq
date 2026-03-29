@@ -80,7 +80,7 @@ func (wr *wireReader) readTable() (Table, error) {
 	}
 	// Prepend the 4-byte length so unmarshalTable can parse it.
 	prefixed := make([]byte, sizeLongLen+len(data))
-	binary.BigEndian.PutUint32(prefixed[:sizeLongLen], uint32(len(data)))
+	binary.BigEndian.PutUint32(prefixed[:sizeLongLen], uint32(len(data))) //nolint:gosec // AMQP table data length; bounded by frame size
 	copy(prefixed[sizeLongLen:], data)
 	tbl, _, err := unmarshalTable(prefixed)
 	if err != nil {
@@ -134,7 +134,7 @@ func (ww *wireWriter) writeShortstr(str string) error {
 	if len(str) > maxShortStr {
 		return fmt.Errorf("shortstr too long: %d bytes (max %d)", len(str), maxShortStr)
 	}
-	if err := ww.writeUint8(uint8(len(str))); err != nil {
+	if err := ww.writeUint8(uint8(len(str))); err != nil { //nolint:gosec // AMQP shortstr; len validated <= 255 above
 		return err
 	}
 	if _, err := ww.wt.Write([]byte(str)); err != nil {
@@ -145,7 +145,7 @@ func (ww *wireWriter) writeShortstr(str string) error {
 
 // writeLongstr writes a 4-byte length prefixed byte slice.
 func (ww *wireWriter) writeLongstr(data []byte) error {
-	if err := ww.writeUint32(uint32(len(data))); err != nil {
+	if err := ww.writeUint32(uint32(len(data))); err != nil { //nolint:gosec // AMQP longstr length; bounded by frame size
 		return err
 	}
 	if _, err := ww.wt.Write(data); err != nil {

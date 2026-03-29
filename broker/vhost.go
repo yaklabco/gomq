@@ -247,7 +247,7 @@ func (v *VHost) PurgeQueue(name string) (uint32, error) {
 
 	count := queue.Purge(math.MaxInt)
 
-	return uint32(count), nil
+	return uint32(count), nil //nolint:gosec // purge count bounded by queue length
 }
 
 // --- Binding operations ---

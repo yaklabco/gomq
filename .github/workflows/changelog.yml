@@ -1,0 +1,23 @@
+name: Changelog
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Verify changelog updated
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check CHANGELOG.md modified
+        run: |
+          if ! git diff --name-only origin/main...HEAD | grep -q '^CHANGELOG.md$'; then
+            echo "::error::CHANGELOG.md was not modified. Please update CHANGELOG.md describing your changes."
+            exit 1
+          fi

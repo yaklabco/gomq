@@ -261,7 +261,7 @@ func (ch *Channel) handleQueueDeclare(m *amqp.QueueDeclare) error {
 		return ch.send(&amqp.QueueDeclareOk{
 			Queue:         queue.Name(),
 			MessageCount:  queue.Len(),
-			ConsumerCount: uint32(queue.ConsumerCount()),
+			ConsumerCount: uint32(queue.ConsumerCount()), //nolint:gosec // consumer count is always small
 		})
 	}
 	return nil

@@ -46,7 +46,7 @@ type Envelope struct {
 // ByteSize returns the total serialized size of the message in bytes.
 func (msg *Message) ByteSize() int {
 	// timestamp(8) + exLen(1) + exchange(N) + rkLen(1) + routingKey(N) + flags(2) + bodySize(8) + body(N)
-	return 8 + 1 + len(msg.ExchangeName) + 1 + len(msg.RoutingKey) + 2 + 8 + int(msg.BodySize)
+	return 8 + 1 + len(msg.ExchangeName) + 1 + len(msg.RoutingKey) + 2 + 8 + int(msg.BodySize) //nolint:gosec // body size bounded by max message size (128MB)
 }
 
 // MarshalTo serializes the message into buf using the LavinMQ binary format.
@@ -58,14 +58,14 @@ func (msg *Message) ByteSize() int {
 func (msg *Message) MarshalTo(buf []byte) int {
 	pos := 0
 
-	binary.LittleEndian.PutUint64(buf[pos:], uint64(msg.Timestamp))
+	binary.LittleEndian.PutUint64(buf[pos:], uint64(msg.Timestamp)) //nolint:gosec // timestamp reinterpretation, not a lossy conversion
 	pos += 8
 
-	buf[pos] = byte(len(msg.ExchangeName))
+	buf[pos] = byte(len(msg.ExchangeName)) //nolint:gosec // AMQP shortstr max 255
 	pos++
 	pos += copy(buf[pos:], msg.ExchangeName)
 
-	buf[pos] = byte(len(msg.RoutingKey))
+	buf[pos] = byte(len(msg.RoutingKey)) //nolint:gosec // AMQP shortstr max 255
 	pos++
 	pos += copy(buf[pos:], msg.RoutingKey)
 
@@ -90,7 +90,7 @@ func ReadBytesMessage(buf []byte) (*BytesMessage, error) {
 
 	pos := 0
 
-	timestamp := int64(binary.LittleEndian.Uint64(buf[pos:]))
+	timestamp := int64(binary.LittleEndian.Uint64(buf[pos:])) //nolint:gosec // timestamp reinterpretation, not a lossy conversion
 	pos += 8
 
 	exLen := int(buf[pos])
@@ -121,13 +121,13 @@ func ReadBytesMessage(buf []byte) (*BytesMessage, error) {
 	bodySize := binary.LittleEndian.Uint64(buf[pos:])
 	pos += 8
 
-	if pos+int(bodySize) > len(buf) {
+	if pos+int(bodySize) > len(buf) { //nolint:gosec // body size bounded by max message size (128MB)
 		return nil, fmt.Errorf("body size %d exceeds buffer: %w", bodySize, ErrBoundsCheck)
 	}
 
 	// Copy body so the result does not alias the mmap region.
 	body := make([]byte, bodySize)
-	copy(body, buf[pos:pos+int(bodySize)])
+	copy(body, buf[pos:pos+int(bodySize)]) //nolint:gosec // body size bounded by max message size (128MB)
 
 	return &BytesMessage{
 		Timestamp:    timestamp,
@@ -150,7 +150,7 @@ func ReadBytesMessageZeroCopy(buf []byte) (*BytesMessage, error) {
 
 	pos := 0
 
-	timestamp := int64(binary.LittleEndian.Uint64(buf[pos:]))
+	timestamp := int64(binary.LittleEndian.Uint64(buf[pos:])) //nolint:gosec // timestamp reinterpretation, not a lossy conversion
 	pos += 8
 
 	exLen := int(buf[pos])
@@ -181,12 +181,12 @@ func ReadBytesMessageZeroCopy(buf []byte) (*BytesMessage, error) {
 	bodySize := binary.LittleEndian.Uint64(buf[pos:])
 	pos += 8
 
-	if pos+int(bodySize) > len(buf) {
+	if pos+int(bodySize) > len(buf) { //nolint:gosec // body size bounded by max message size (128MB)
 		return nil, fmt.Errorf("body size %d exceeds buffer: %w", bodySize, ErrBoundsCheck)
 	}
 
 	// Zero-copy: body aliases the input buffer directly.
-	body := buf[pos : pos+int(bodySize)]
+	body := buf[pos : pos+int(bodySize)] //nolint:gosec // body size bounded by max message size (128MB)
 
 	return &BytesMessage{
 		Timestamp:    timestamp,
@@ -228,7 +228,7 @@ func SkipMessage(buf []byte) (int, error) {
 		return 0, fmt.Errorf("buffer too small for body size at offset %d: %w", pos, ErrBoundsCheck)
 	}
 	bodySize := binary.LittleEndian.Uint64(buf[pos:])
-	pos += bodySizeLen + int(bodySize)
+	pos += bodySizeLen + int(bodySize) //nolint:gosec // body size bounded by max message size (128MB)
 
 	return pos, nil
 }

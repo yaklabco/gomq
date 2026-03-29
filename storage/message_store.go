@@ -129,13 +129,13 @@ func (ms *MessageStore) Push(msg *Message) (SegmentPosition, error) {
 
 	sp := SegmentPosition{
 		Segment:  ms.wfileID,
-		Position: uint32(pos),
-		Size:     uint32(byteSize),
+		Position: uint32(pos),      //nolint:gosec // position bounded by segment size (8MB)
+		Size:     uint32(byteSize), //nolint:gosec // message size bounded
 	}
 
 	ms.msgCount[ms.wfileID]++
 	ms.size++
-	ms.bytesize += uint64(byteSize)
+	ms.bytesize += uint64(byteSize) //nolint:gosec // int to uint64 widening, always safe
 
 	return sp, nil
 }
@@ -168,12 +168,12 @@ func (ms *MessageStore) Shift() (*Envelope, bool) {
 
 		ms.rpos += int64(msgSize)
 
-		if ms.isDeleted(seg, uint32(pos)) {
+		if ms.isDeleted(seg, uint32(pos)) { //nolint:gosec // segment position bounded by segment size (8MB)
 			continue
 		}
 
 		ms.size--
-		ms.bytesize -= uint64(msgSize)
+		ms.bytesize -= uint64(msgSize) //nolint:gosec // int to uint64 widening, always safe
 
 		return env, true
 	}
@@ -211,7 +211,7 @@ func (ms *MessageStore) ShiftFunc(fn func(env *Envelope) error) (bool, error) {
 
 		ms.rpos += int64(msgSize)
 
-		if ms.isDeleted(seg, uint32(pos)) {
+		if ms.isDeleted(seg, uint32(pos)) { //nolint:gosec // segment position bounded by segment size (8MB)
 			continue
 		}
 
@@ -225,7 +225,7 @@ func (ms *MessageStore) ShiftFunc(fn func(env *Envelope) error) (bool, error) {
 		}
 
 		ms.size--
-		ms.bytesize -= uint64(msgSize)
+		ms.bytesize -= uint64(msgSize) //nolint:gosec // int to uint64 widening, always safe
 
 		return true, nil
 	}
@@ -272,7 +272,7 @@ func (ms *MessageStore) Delete(sp SegmentPosition) error {
 
 	// Clean up fully-acked segments (not the current write segment).
 	if sp.Segment != ms.wfileID {
-		ackCount := uint32(ackFile.Size() / ackEntrySize)
+		ackCount := uint32(ackFile.Size() / ackEntrySize) //nolint:gosec // ack count bounded by segment message count
 		if ackCount >= ms.msgCount[sp.Segment] {
 			ms.cleanupSegment(sp.Segment)
 		}
@@ -570,9 +570,9 @@ func (ms *MessageStore) loadStats() {
 			}
 
 			count++
-			if !ms.isDeleted(segID, uint32(pos)) {
+			if !ms.isDeleted(segID, uint32(pos)) { //nolint:gosec // segment position bounded by segment size (8MB)
 				ms.size++
-				ms.bytesize += uint64(msgSize)
+				ms.bytesize += uint64(msgSize) //nolint:gosec // int to uint64 widening, always safe
 			}
 
 			pos += int64(msgSize)
@@ -625,8 +625,8 @@ func (ms *MessageStore) readMessageAtWith(seg uint32, pos int64, readFn func([]b
 
 	sp := SegmentPosition{
 		Segment:  seg,
-		Position: uint32(pos),
-		Size:     uint32(msgSize),
+		Position: uint32(pos),     //nolint:gosec // segment position bounded by segment size (8MB)
+		Size:     uint32(msgSize), //nolint:gosec // message size bounded by max message size
 	}
 
 	return &Envelope{

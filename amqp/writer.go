@@ -146,7 +146,7 @@ func (w *Writer) writeFrame(frameType uint8, channel uint16, payload []byte) err
 	var hdr [frameHeaderSize]byte
 	hdr[0] = frameType
 	binary.BigEndian.PutUint16(hdr[1:3], channel)
-	binary.BigEndian.PutUint32(hdr[3:frameHeaderSize], uint32(len(payload)))
+	binary.BigEndian.PutUint32(hdr[3:frameHeaderSize], uint32(len(payload))) //nolint:gosec // payload bounded by maxFrameSize
 
 	if _, err := w.bw.Write(hdr[:]); err != nil {
 		return fmt.Errorf("write frame header: %w", err)
