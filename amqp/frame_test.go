@@ -24,7 +24,7 @@ func TestMethodFrame_roundTrip(t *testing.T) {
 		t.Fatalf("Flush() error = %v", err)
 	}
 
-	rd := NewReader(&buf)
+	rd := NewReader(&buf, 131072)
 	frame, err := rd.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame() error = %v", err)
@@ -71,7 +71,7 @@ func TestHeaderFrame_roundTrip(t *testing.T) {
 		t.Fatalf("Flush() error = %v", err)
 	}
 
-	rd := NewReader(&buf)
+	rd := NewReader(&buf, 131072)
 	frame, err := rd.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame() error = %v", err)
@@ -113,7 +113,7 @@ func TestBodyFrame_roundTrip(t *testing.T) {
 		t.Fatalf("Flush() error = %v", err)
 	}
 
-	rd := NewReader(&buf)
+	rd := NewReader(&buf, 131072)
 	frame, err := rd.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame() error = %v", err)
@@ -144,7 +144,7 @@ func TestHeartbeatFrame_roundTrip(t *testing.T) {
 		t.Fatalf("Flush() error = %v", err)
 	}
 
-	rd := NewReader(&buf)
+	rd := NewReader(&buf, 131072)
 	frame, err := rd.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame() error = %v", err)
@@ -168,7 +168,7 @@ func TestReadFrame_badFrameEnd(t *testing.T) {
 		0xFF, // WRONG frame-end (should be 0xCE)
 	}
 
-	rd := NewReader(bytes.NewReader(frame))
+	rd := NewReader(bytes.NewReader(frame), 131072)
 	_, err := rd.ReadFrame()
 	if err == nil {
 		t.Error("expected error for bad frame-end, got nil")
@@ -195,7 +195,7 @@ func TestBodyFrame_largeBody_multipleFrames(t *testing.T) {
 	}
 
 	// Read all body frames and reassemble.
-	rd := NewReader(&buf)
+	rd := NewReader(&buf, 131072)
 	var reassembled []byte
 	frameCount := 0
 
@@ -239,7 +239,7 @@ func TestMethodFrame_onChannel(t *testing.T) {
 		t.Fatalf("Flush() error = %v", err)
 	}
 
-	rd := NewReader(&buf)
+	rd := NewReader(&buf, 131072)
 	frame, err := rd.ReadFrame()
 	if err != nil {
 		t.Fatalf("ReadFrame() error = %v", err)

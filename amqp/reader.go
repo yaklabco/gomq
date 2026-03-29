@@ -8,14 +8,30 @@ import (
 )
 
 // Reader reads AMQP frames from an io.Reader.
+// It enforces a maximum frame size and reuses a read buffer to minimize allocations.
 type Reader struct {
-	rd  io.Reader
-	hdr [frameHeaderSize]byte
+	rd      io.Reader
+	hdr     [frameHeaderSize]byte
+	buf     []byte // reusable payload buffer
+	maxSize uint32 // max frame size (negotiated)
 }
 
-// NewReader creates a new frame reader.
-func NewReader(r io.Reader) *Reader {
-	return &Reader{rd: r}
+// NewReader creates a new frame reader with the given max frame size.
+// Frames larger than maxSize are rejected.
+func NewReader(r io.Reader, maxSize uint32) *Reader {
+	if maxSize < FrameMinSize {
+		maxSize = FrameMinSize
+	}
+	return &Reader{
+		rd:      r,
+		buf:     make([]byte, 0, maxSize),
+		maxSize: maxSize,
+	}
+}
+
+// SetMaxSize updates the maximum frame size (e.g. after Tune negotiation).
+func (r *Reader) SetMaxSize(maxSize uint32) {
+	r.maxSize = maxSize
 }
 
 // ReadFrame reads the next complete frame from the connection.
@@ -29,8 +45,17 @@ func (r *Reader) ReadFrame() (Frame, error) {
 	channel := binary.BigEndian.Uint16(r.hdr[1:3])
 	payloadSize := binary.BigEndian.Uint32(r.hdr[3:frameHeaderSize])
 
-	// Read the payload.
-	payload := make([]byte, payloadSize)
+	// Validate frame size before allocating.
+	if payloadSize > r.maxSize {
+		return nil, fmt.Errorf("frame too large: %d bytes exceeds max %d", payloadSize, r.maxSize)
+	}
+
+	// Reuse buffer, growing only when needed.
+	if uint32(cap(r.buf)) < payloadSize {
+		r.buf = make([]byte, payloadSize)
+	}
+	payload := r.buf[:payloadSize]
+
 	if _, err := io.ReadFull(r.rd, payload); err != nil {
 		return nil, fmt.Errorf("read frame payload (%d bytes): %w", payloadSize, err)
 	}
@@ -54,7 +79,10 @@ func (r *Reader) decodeFrame(frameType uint8, channel uint16, payload []byte) (F
 	case FrameHeader:
 		return r.decodeHeaderFrame(channel, payload)
 	case FrameBody:
-		return &BodyFrame{Channel: channel, Body: payload}, nil
+		// Body frames: copy payload out since buffer is reused.
+		body := make([]byte, len(payload))
+		copy(body, payload)
+		return &BodyFrame{Channel: channel, Body: body}, nil
 	case FrameHeartbeat:
 		return &HeartbeatFrame{}, nil
 	default:
