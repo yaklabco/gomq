@@ -475,26 +475,47 @@ func (q *Queue) parseArguments(args map[string]interface{}) {
 	}
 
 	if v, ok := args["x-max-length"]; ok {
-		if n, ok := v.(int64); ok {
-			q.maxLength = n
-		}
+		q.maxLength = toInt64(v)
 	}
 
 	if v, ok := args["x-max-length-bytes"]; ok {
-		if n, ok := v.(int64); ok {
-			q.maxLengthBytes = n
-		}
+		q.maxLengthBytes = toInt64(v)
 	}
 
 	if v, ok := args["x-message-ttl"]; ok {
-		if n, ok := v.(int64); ok {
-			q.messageTTL = n
-		}
+		q.messageTTL = toInt64(v)
 	}
 
 	if v, ok := args["x-overflow"]; ok {
 		if s, ok := v.(string); ok {
 			q.overflow = s
 		}
+	}
+}
+
+// toInt64 coerces an interface{} value to int64, handling the various
+// integer types that arrive from AMQP table decoding. Different client
+// libraries use different wire type tags for the same logical value
+// (e.g. amqp091-go uses 'l' for int64 which GoMQ decodes as uint64).
+func toInt64(v interface{}) int64 {
+	switch val := v.(type) {
+	case int64:
+		return val
+	case uint64:
+		return int64(val)
+	case int32:
+		return int64(val)
+	case uint32:
+		return int64(val)
+	case int16:
+		return int64(val)
+	case uint16:
+		return int64(val)
+	case int8:
+		return int64(val)
+	case uint8:
+		return int64(val)
+	default:
+		return 0
 	}
 }
