@@ -29,8 +29,9 @@ func testSetup(t *testing.T) (*VHost, *auth.UserStore) {
 	return vh, users
 }
 
-// doClientHandshake performs the client side of the AMQP handshake on conn.
-func doClientHandshake(t *testing.T, conn net.Conn, vhost string) {
+// doClientHandshake performs the client side of the AMQP handshake on conn
+// using the default "/" vhost.
+func doClientHandshake(t *testing.T, conn net.Conn) {
 	t.Helper()
 
 	// Send protocol header.
@@ -97,7 +98,7 @@ func doClientHandshake(t *testing.T, conn net.Conn, vhost string) {
 
 	// Send Connection.Open.
 	if err := writer.WriteMethod(0, &amqp.ConnectionOpen{
-		VirtualHost: vhost,
+		VirtualHost: "/",
 	}); err != nil {
 		t.Fatalf("write ConnectionOpen: %v", err)
 	}
@@ -143,7 +144,7 @@ func TestConnection_HandshakeSuccess(t *testing.T) {
 	if err := clientConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}
-	doClientHandshake(t, clientConn, "/")
+	doClientHandshake(t, clientConn)
 
 	if err := <-errCh; err != nil {
 		t.Fatalf("Handshake() error: %v", err)
@@ -259,7 +260,7 @@ func TestConnection_ChannelOpenClose(t *testing.T) {
 	if err := clientConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		t.Fatalf("set deadline: %v", err)
 	}
-	doClientHandshake(t, clientConn, "/")
+	doClientHandshake(t, clientConn)
 
 	if err := <-handshakeErr; err != nil {
 		t.Fatalf("Handshake() error: %v", err)
