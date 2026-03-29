@@ -186,9 +186,12 @@ func (c *Connection) Handshake() error {
 // a separate goroutine monitors a channel signal to detect heartbeat timeouts.
 func (c *Connection) ReadLoop() error {
 	lastFrame := make(chan struct{}, 1)
+	done := make(chan struct{})
+	defer close(done)
 
 	// Heartbeat timeout goroutine — closes the connection if no frames
 	// arrive within the heartbeat window, which unblocks ReadFrame below.
+	// Exits when done is closed (ReadLoop returns).
 	if c.heartbeat > 0 {
 		go func() {
 			timeout := c.heartbeat * heartbeatMultiplier
@@ -196,6 +199,8 @@ func (c *Connection) ReadLoop() error {
 			defer timer.Stop()
 			for {
 				select {
+				case <-done:
+					return
 				case <-lastFrame:
 					if !timer.Stop() {
 						<-timer.C
