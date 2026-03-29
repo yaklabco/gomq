@@ -23,7 +23,7 @@ func NewDirectExchange(name string, durable, autoDelete bool) *DirectExchange {
 }
 
 // Type returns "direct".
-func (e *DirectExchange) Type() string { return "direct" }
+func (e *DirectExchange) Type() string { return ExchangeDirect }
 
 // Bind adds a destination for the given routing key.
 func (e *DirectExchange) Bind(dest Destination, routingKey string, _ map[string]interface{}) error {

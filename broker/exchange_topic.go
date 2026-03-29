@@ -142,7 +142,7 @@ func NewTopicExchange(name string, durable, autoDelete bool) *TopicExchange {
 }
 
 // Type returns "topic".
-func (e *TopicExchange) Type() string { return "topic" }
+func (e *TopicExchange) Type() string { return ExchangeTopic }
 
 // Bind adds a destination for the given binding key pattern.
 func (e *TopicExchange) Bind(dest Destination, routingKey string, _ map[string]interface{}) error {

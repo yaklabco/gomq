@@ -1,5 +1,13 @@
 package broker
 
+// Exchange type constants used by Type() methods and DeclareExchange.
+const (
+	ExchangeDirect  = "direct"
+	ExchangeFanout  = "fanout"
+	ExchangeTopic   = "topic"
+	ExchangeHeaders = "headers"
+)
+
 // Destination represents a routable target such as a queue or another exchange.
 type Destination interface {
 	Name() string

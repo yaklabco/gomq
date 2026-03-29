@@ -30,7 +30,7 @@ func NewHeadersExchange(name string, durable, autoDelete bool) *HeadersExchange 
 }
 
 // Type returns "headers".
-func (e *HeadersExchange) Type() string { return "headers" }
+func (e *HeadersExchange) Type() string { return ExchangeHeaders }
 
 // Bind adds a destination with the given argument map. The routing key is ignored.
 func (e *HeadersExchange) Bind(dest Destination, _ string, args map[string]interface{}) error {

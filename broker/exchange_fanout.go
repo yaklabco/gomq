@@ -23,7 +23,7 @@ func NewFanoutExchange(name string, durable, autoDelete bool) *FanoutExchange {
 }
 
 // Type returns "fanout".
-func (e *FanoutExchange) Type() string { return "fanout" }
+func (e *FanoutExchange) Type() string { return ExchangeFanout }
 
 // Bind adds a destination. The routing key and args are ignored.
 func (e *FanoutExchange) Bind(dest Destination, _ string, _ map[string]interface{}) error {
