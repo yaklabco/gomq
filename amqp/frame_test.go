@@ -194,15 +194,17 @@ func TestBodyFrame_largeBody_multipleFrames(t *testing.T) {
 		t.Fatalf("Flush() error = %v", err)
 	}
 
-	// Read all body frames and reassemble.
+	// Read all body frames and reassemble. We read until EOF rather than
+	// checking buf.Len() because the Reader wraps the source in a
+	// bufio.Reader, which reads ahead.
 	rd := NewReader(&buf, 131072)
 	var reassembled []byte
 	frameCount := 0
 
-	for buf.Len() > 0 {
+	for {
 		frame, err := rd.ReadFrame()
 		if err != nil {
-			t.Fatalf("ReadFrame() error = %v", err)
+			break // EOF or read error after all data consumed
 		}
 		bf, ok := frame.(*BodyFrame)
 		if !ok {

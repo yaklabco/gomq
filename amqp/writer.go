@@ -26,10 +26,14 @@ func (sw *sliceWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// writerBufSize is the bufio.Writer buffer size. 64 KiB reduces write
+// syscalls on high-throughput connections compared to the default 4 KiB.
+const writerBufSize = 65536
+
 // NewWriter creates a new frame writer with the given maximum frame size.
 func NewWriter(w io.Writer, maxFrameSize int) *Writer {
 	return &Writer{
-		bw:           bufio.NewWriter(w),
+		bw:           bufio.NewWriterSize(w, writerBufSize),
 		maxFrameSize: maxFrameSize,
 		scratch:      make([]byte, maxFrameSize),
 		methodBuf:    make([]byte, 0, maxFrameSize),

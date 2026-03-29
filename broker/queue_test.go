@@ -45,6 +45,8 @@ func TestQueue_PublishAndGetRoundtrip(t *testing.T) {
 		t.Fatal("Publish() returned false, want true")
 	}
 
+	queue.Drain()
+
 	if queue.Len() != 1 {
 		t.Errorf("Len() = %d, want 1", queue.Len())
 	}
@@ -72,6 +74,8 @@ func TestQueue_FIFOOrdering(t *testing.T) {
 			t.Fatalf("Publish(%q) error: %v", body, err)
 		}
 	}
+
+	queue.Drain()
 
 	for _, want := range bodies {
 		env, ok := queue.Get(true)
@@ -104,6 +108,8 @@ func TestQueue_Purge(t *testing.T) {
 		}
 	}
 
+	queue.Drain()
+
 	purged := queue.Purge(3)
 	if purged != 3 {
 		t.Errorf("Purge(3) = %d, want 3", purged)
@@ -129,6 +135,8 @@ func TestQueue_MaxLengthDropHead(t *testing.T) {
 		}
 	}
 
+	queue.Drain()
+
 	if queue.Len() != 3 {
 		t.Errorf("Len() = %d, want 3 (max-length)", queue.Len())
 	}
@@ -151,6 +159,9 @@ func TestQueue_MaxLengthRejectPublish(t *testing.T) {
 			t.Fatal("Publish() returned false before limit reached")
 		}
 	}
+
+	// Drain so the store reflects the published messages before we test rejection.
+	queue.Drain()
 
 	// Third publish should be rejected.
 	ok, err := queue.Publish(makeStorageMsg("", "", "rejected"))
@@ -249,6 +260,7 @@ func TestQueue_Delete(t *testing.T) {
 	if _, err := queue.Publish(makeStorageMsg("", "", "data")); err != nil {
 		t.Fatalf("Publish() error: %v", err)
 	}
+	queue.Drain()
 
 	if err := queue.Delete(); err != nil {
 		t.Fatalf("Delete() error: %v", err)
@@ -298,6 +310,7 @@ func TestQueue_AckDeletesMessage(t *testing.T) {
 	if _, err := queue.Publish(msg); err != nil {
 		t.Fatalf("Publish() error: %v", err)
 	}
+	queue.Drain()
 
 	env, ok := queue.Get(false)
 	if !ok {
@@ -316,6 +329,7 @@ func TestQueue_RejectDeletesMessage(t *testing.T) {
 	if _, err := queue.Publish(makeStorageMsg("", "", "reject-me")); err != nil {
 		t.Fatalf("Publish() error: %v", err)
 	}
+	queue.Drain()
 
 	env, ok := queue.Get(false)
 	if !ok {

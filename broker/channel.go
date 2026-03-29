@@ -394,6 +394,10 @@ func (ch *Channel) handleBasicGet(get *amqp.BasicGet) error {
 		return fmt.Errorf("queue %q: %w", get.Queue, ErrQueueNotFound)
 	}
 
+	// Drain the async inbox so recently published messages are visible
+	// for the synchronous basic.get polling operation.
+	queue.Drain()
+
 	env, got := queue.Get(get.NoAck)
 	if !got {
 		return ch.send(&amqp.BasicGetEmpty{})
