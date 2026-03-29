@@ -123,3 +123,56 @@ func TestDirectExchange_Type(t *testing.T) {
 		t.Errorf("Type() = %q, want %q", got, "direct")
 	}
 }
+
+// --- Fanout Exchange Tests ---
+
+func TestFanoutExchange_AllDestinations(t *testing.T) {
+	t.Parallel()
+
+	ex := NewFanoutExchange("fanout-test", false, false)
+	dest1 := &testDest{name: "queue-1"}
+	dest2 := &testDest{name: "queue-2"}
+	dest3 := &testDest{name: "queue-3"}
+
+	for _, dest := range []Destination{dest1, dest2, dest3} {
+		if err := ex.Bind(dest, "", nil); err != nil {
+			t.Fatalf("Bind(%s) error: %v", dest.Name(), err)
+		}
+	}
+
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{RoutingKey: "anything.ignored"}, results)
+
+	if len(results) != 3 {
+		t.Errorf("expected 3 destinations, got %d", len(results))
+	}
+
+	for _, dest := range []Destination{dest1, dest2, dest3} {
+		if _, ok := results[dest]; !ok {
+			t.Errorf("expected %s in results", dest.Name())
+		}
+	}
+}
+
+func TestFanoutExchange_EmptyBindings(t *testing.T) {
+	t.Parallel()
+
+	ex := NewFanoutExchange("fanout-test", false, false)
+
+	results := make(map[Destination]struct{})
+	ex.Route(&Message{RoutingKey: "anything"}, results)
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 destinations, got %d", len(results))
+	}
+}
+
+func TestFanoutExchange_Type(t *testing.T) {
+	t.Parallel()
+
+	ex := NewFanoutExchange("fanout-test", false, false)
+
+	if got := ex.Type(); got != "fanout" {
+		t.Errorf("Type() = %q, want %q", got, "fanout")
+	}
+}
