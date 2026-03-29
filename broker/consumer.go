@@ -3,7 +3,6 @@ package broker
 import (
 	"context"
 	"sync/atomic"
-	"time"
 
 	"github.com/jamesainslie/gomq/storage"
 )
@@ -12,15 +11,16 @@ import (
 // It runs a goroutine that respects prefetch limits, waits for messages,
 // and invokes a delivery callback for each message shifted from the queue.
 type Consumer struct {
-	Tag       string
-	queue     *Queue
-	noAck     bool
-	exclusive bool
-	prefetch  uint16
-	unacked   atomic.Int32
-	deliverFn func(env *storage.Envelope, deliveryTag uint64) error
-	cancel    context.CancelFunc
-	done      chan struct{}
+	Tag        string
+	queue      *Queue
+	noAck      bool
+	exclusive  bool
+	prefetch   uint16
+	unacked    atomic.Int32
+	capacityCh chan struct{}
+	deliverFn  func(env *storage.Envelope, deliveryTag uint64) error
+	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 // NewConsumer creates a consumer bound to the given queue. The deliverFn
@@ -35,13 +35,14 @@ func NewConsumer(
 	deliverFn func(*storage.Envelope, uint64) error,
 ) *Consumer {
 	return &Consumer{
-		Tag:       tag,
-		queue:     queue,
-		noAck:     noAck,
-		exclusive: exclusive,
-		prefetch:  prefetch,
-		deliverFn: deliverFn,
-		done:      make(chan struct{}),
+		Tag:        tag,
+		queue:      queue,
+		noAck:      noAck,
+		exclusive:  exclusive,
+		prefetch:   prefetch,
+		capacityCh: make(chan struct{}, 1),
+		deliverFn:  deliverFn,
+		done:       make(chan struct{}),
 	}
 }
 
@@ -74,6 +75,10 @@ func (c *Consumer) Stop() {
 // Ack decrements the unacked counter and signals capacity to the delivery loop.
 func (c *Consumer) Ack() {
 	c.unacked.Add(-1)
+	select {
+	case c.capacityCh <- struct{}{}:
+	default:
+	}
 }
 
 // HasCapacity reports whether the consumer can accept another delivery.
@@ -128,22 +133,20 @@ func (c *Consumer) run(ctx context.Context) {
 	}
 }
 
-// capacityPollInterval is the interval between prefetch capacity checks.
-const capacityPollInterval = 5 * time.Millisecond
-
 // waitForCapacity blocks until the consumer has prefetch capacity or the
 // context is cancelled. Returns true if capacity is available.
 func (c *Consumer) waitForCapacity(ctx context.Context) bool {
-	if c.prefetch == 0 {
+	if c.prefetch == 0 || c.unacked.Load() < int32(c.prefetch) {
 		return true
 	}
-
-	for c.unacked.Load() >= int32(c.prefetch) {
+	for {
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(capacityPollInterval):
+		case <-c.capacityCh:
+			if c.unacked.Load() < int32(c.prefetch) {
+				return true
+			}
 		}
 	}
-	return true
 }

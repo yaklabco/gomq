@@ -1,16 +1,21 @@
 package amqp
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 )
 
+// readerBufSize is the bufio.Reader buffer size. 64 KiB batches reads
+// from the socket, reducing syscalls on high-throughput connections.
+const readerBufSize = 65536
+
 // Reader reads AMQP frames from an io.Reader.
 // It enforces a maximum frame size and reuses a read buffer to minimize allocations.
 type Reader struct {
-	rd      io.Reader
+	rd      *bufio.Reader
 	hdr     [frameHeaderSize]byte
 	buf     []byte // reusable payload buffer
 	maxSize uint32 // max frame size (negotiated)
@@ -23,7 +28,7 @@ func NewReader(r io.Reader, maxSize uint32) *Reader {
 		maxSize = FrameMinSize
 	}
 	return &Reader{
-		rd:      r,
+		rd:      bufio.NewReaderSize(r, readerBufSize),
 		buf:     make([]byte, 0, maxSize),
 		maxSize: maxSize,
 	}

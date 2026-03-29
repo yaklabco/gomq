@@ -181,21 +181,52 @@ func (c *Connection) Handshake() error {
 
 // ReadLoop reads frames from the connection and dispatches them.
 // It returns nil on graceful close and an error on protocol or I/O errors.
+//
+// Instead of calling SetReadDeadline on every frame (one syscall per frame),
+// a separate goroutine monitors a channel signal to detect heartbeat timeouts.
 func (c *Connection) ReadLoop() error {
-	for {
-		if c.heartbeat > 0 {
-			deadline := time.Now().Add(c.heartbeat * heartbeatMultiplier)
-			if err := c.conn.SetReadDeadline(deadline); err != nil {
-				return fmt.Errorf("set read deadline: %w", err)
-			}
-		}
+	lastFrame := make(chan struct{}, 1)
+	done := make(chan struct{})
+	defer close(done)
 
+	// Heartbeat timeout goroutine — closes the connection if no frames
+	// arrive within the heartbeat window, which unblocks ReadFrame below.
+	// Exits when done is closed (ReadLoop returns).
+	if c.heartbeat > 0 {
+		go func() {
+			timeout := c.heartbeat * heartbeatMultiplier
+			timer := time.NewTimer(timeout)
+			defer timer.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-lastFrame:
+					if !timer.Stop() {
+						<-timer.C
+					}
+					timer.Reset(timeout)
+				case <-timer.C:
+					_ = c.conn.Close() // triggers ReadFrame error
+					return
+				}
+			}
+		}()
+	}
+
+	for {
 		frame, err := c.reader.ReadFrame()
 		if err != nil {
 			if c.closed.Load() {
 				return nil
 			}
 			return fmt.Errorf("read frame: %w", err)
+		}
+
+		// Signal heartbeat goroutine (non-blocking).
+		select {
+		case lastFrame <- struct{}{}:
+		default:
 		}
 
 		switch frame := frame.(type) {
@@ -289,7 +320,7 @@ func (c *Connection) handleChannelOpen(channelID uint16, _ *amqp.ChannelOpen) er
 		return fmt.Errorf("channel %d already open", channelID)
 	}
 
-	channel := NewChannel(channelID, c.vhost, c.sendFrameMethod, c.sendFrameContent)
+	channel := NewChannel(channelID, c.vhost, c.sendFrameMethod, c.sendFrameContent, c.sendDelivery)
 	c.channels[channelID] = channel
 	c.mu.Unlock()
 
@@ -356,6 +387,24 @@ func (c *Connection) sendFrameContent(channel uint16, classID uint16, props *amq
 		return fmt.Errorf("flush content: %w", err)
 	}
 	return nil
+}
+
+// sendDelivery writes a method frame, content header, and body in a single
+// flush to reduce syscalls on the delivery hot path.
+func (c *Connection) sendDelivery(channel uint16, method amqp.Method, classID uint16, props *amqp.Properties, body []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err := c.writer.WriteMethod(channel, method); err != nil {
+		return fmt.Errorf("write delivery method %s: %w", method.MethodName(), err)
+	}
+	if err := c.writer.WriteHeader(channel, classID, uint64(len(body)), props); err != nil {
+		return fmt.Errorf("write delivery header: %w", err)
+	}
+	if err := c.writer.WriteBody(channel, body); err != nil {
+		return fmt.Errorf("write delivery body: %w", err)
+	}
+	return c.writer.Flush()
 }
 
 // sendHeartbeat writes a heartbeat frame.

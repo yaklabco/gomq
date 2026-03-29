@@ -15,6 +15,23 @@ type sendMethodFn func(channel uint16, method amqp.Method) error
 // sendContentFn writes a content header and body to the connection.
 type sendContentFn func(channel uint16, classID uint16, props *amqp.Properties, body []byte) error
 
+// sendDeliveryFn writes a method, content header, and body in a single flush.
+type sendDeliveryFn func(channel uint16, method amqp.Method, classID uint16, props *amqp.Properties, body []byte) error
+
+// defaultBodyBufSize is the initial capacity for pooled publish body buffers.
+const defaultBodyBufSize = 4096
+
+// bodyPool reuses byte buffers for publish body accumulation to avoid
+// per-publish heap allocations. Stores *[]byte to satisfy SA6002.
+//
+//nolint:gochecknoglobals // sync.Pool is inherently global
+var bodyPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, defaultBodyBufSize)
+		return &b
+	},
+}
+
 // Unack tracks a delivered but unacknowledged message.
 type Unack struct {
 	DeliveryTag uint64
@@ -46,10 +63,12 @@ type Channel struct {
 	pubProperties amqp.Properties
 	pubBodySize   uint64
 	pubBody       []byte
+	pubBodyBufp   *[]byte // pool pointer for returning the buffer
 	pubState      publishState
 
-	sendMethod  sendMethodFn
-	sendContent sendContentFn
+	sendMethod   sendMethodFn
+	sendContent  sendContentFn
+	sendDelivery sendDeliveryFn
 }
 
 // publishState tracks progress through the BasicPublish + Header + Body sequence.
@@ -62,13 +81,14 @@ const (
 )
 
 // NewChannel creates a channel bound to a vhost with write callbacks.
-func NewChannel(id uint16, vhost *VHost, sendMethod sendMethodFn, sendContent sendContentFn) *Channel {
+func NewChannel(id uint16, vhost *VHost, sendMethod sendMethodFn, sendContent sendContentFn, sendDelivery sendDeliveryFn) *Channel {
 	return &Channel{
-		id:          id,
-		vhost:       vhost,
-		consumers:   make(map[string]*Consumer),
-		sendMethod:  sendMethod,
-		sendContent: sendContent,
+		id:           id,
+		vhost:        vhost,
+		consumers:    make(map[string]*Consumer),
+		sendMethod:   sendMethod,
+		sendContent:  sendContent,
+		sendDelivery: sendDelivery,
 	}
 }
 
@@ -151,7 +171,19 @@ func (ch *Channel) HandleHeader(hf *amqp.HeaderFrame) error {
 
 	ch.pubProperties = hf.Properties
 	ch.pubBodySize = hf.BodySize
-	ch.pubBody = make([]byte, 0, hf.BodySize)
+
+	poolVal := bodyPool.Get()
+	bufp, ok := poolVal.(*[]byte)
+	if !ok {
+		b := make([]byte, 0, defaultBodyBufSize)
+		bufp = &b
+	}
+	buf := *bufp
+	if uint64(cap(buf)) < hf.BodySize {
+		buf = make([]byte, 0, hf.BodySize)
+	}
+	ch.pubBody = buf[:0]
+	ch.pubBodyBufp = bufp
 
 	if hf.BodySize == 0 {
 		return ch.finishPublish()
@@ -301,19 +333,16 @@ func (ch *Channel) handleBasicConsume(consume *amqp.BasicConsume) error {
 	chID := ch.id
 	consumer := NewConsumer(tag, queue, noAck, consume.Exclusive, prefetch,
 		func(env *storage.Envelope, deliveryTag uint64) error {
-			// Send BasicDeliver + content to the client.
-			if sendErr := ch.sendMethod(chID, &amqp.BasicDeliver{
+			// Send BasicDeliver + content header + body in a single flush.
+			props := storagePropsToAMQP(env.Message.Properties)
+			if sendErr := ch.sendDelivery(chID, &amqp.BasicDeliver{
 				ConsumerTag: tag,
 				DeliveryTag: deliveryTag,
 				Redelivered: env.Redelivered,
 				Exchange:    env.Message.ExchangeName,
 				RoutingKey:  env.Message.RoutingKey,
-			}); sendErr != nil {
-				return fmt.Errorf("send deliver: %w", sendErr)
-			}
-			props := storagePropsToAMQP(env.Message.Properties)
-			if sendErr := ch.sendContent(chID, amqp.ClassBasic, &props, env.Message.Body); sendErr != nil {
-				return fmt.Errorf("send content: %w", sendErr)
+			}, amqp.ClassBasic, &props, env.Message.Body); sendErr != nil {
+				return fmt.Errorf("send delivery: %w", sendErr)
 			}
 
 			if !noAck {
@@ -364,6 +393,10 @@ func (ch *Channel) handleBasicGet(get *amqp.BasicGet) error {
 	if !ok {
 		return fmt.Errorf("queue %q: %w", get.Queue, ErrQueueNotFound)
 	}
+
+	// Drain the async inbox so recently published messages are visible
+	// for the synchronous basic.get polling operation.
+	queue.Drain()
 
 	env, got := queue.Get(get.NoAck)
 	if !got {
@@ -440,7 +473,18 @@ func (ch *Channel) finishPublish() error {
 		Body:         ch.pubBody,
 	}
 
-	err := ch.vhost.Publish(ch.pubExchange, ch.pubRoutingKey, ch.pubMandatory, msg)
+	// Use synchronous persistence when confirms are enabled — the BasicAck
+	// must not be sent until the message is on disk.
+	syncPersist := ch.confirmMode
+	err := ch.vhost.Publish(ch.pubExchange, ch.pubRoutingKey, syncPersist, msg)
+
+	// Return body buffer to pool after publish is complete.
+	if ch.pubBodyBufp != nil {
+		*ch.pubBodyBufp = ch.pubBody[:0]
+		bodyPool.Put(ch.pubBodyBufp)
+		ch.pubBodyBufp = nil
+		ch.pubBody = nil
+	}
 
 	if ch.confirmMode {
 		ch.confirmCount++

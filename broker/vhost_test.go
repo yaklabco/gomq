@@ -388,6 +388,9 @@ func TestVHost_DeleteQueue_IfEmpty(t *testing.T) {
 		t.Fatalf("Publish() error: %v", pubErr)
 	}
 
+	queue, _ := vh.GetQueue("orders")
+	queue.Drain()
+
 	_, err = vh.DeleteQueue("orders", false, true)
 	if err == nil {
 		t.Error("expected error deleting non-empty queue when ifEmpty=true")
@@ -419,6 +422,9 @@ func TestVHost_PurgeQueue(t *testing.T) {
 		}
 	}
 
+	queue, _ := vh.GetQueue("orders")
+	queue.Drain()
+
 	count, err := vh.PurgeQueue("orders")
 	if err != nil {
 		t.Fatalf("PurgeQueue() error: %v", err)
@@ -428,7 +434,7 @@ func TestVHost_PurgeQueue(t *testing.T) {
 		t.Errorf("PurgeQueue() = %d, want 2", count)
 	}
 
-	queue, _ := vh.GetQueue("orders")
+	queue, _ = vh.GetQueue("orders")
 	if queue.Len() != 0 {
 		t.Errorf("queue length after purge = %d, want 0", queue.Len())
 	}
@@ -474,6 +480,7 @@ func TestVHost_BindQueue_DirectPublish(t *testing.T) {
 	}
 
 	queue, _ := vh.GetQueue("orders")
+	queue.Drain()
 	if queue.Len() != 1 {
 		t.Errorf("queue length = %d, want 1", queue.Len())
 	}
@@ -508,9 +515,10 @@ func TestVHost_FanoutPublish_AllBoundQueues(t *testing.T) {
 	}
 
 	for _, name := range queueNames {
-		queue, _ := vh.GetQueue(name)
-		if queue.Len() != 1 {
-			t.Errorf("queue %q length = %d, want 1", name, queue.Len())
+		q, _ := vh.GetQueue(name)
+		q.Drain()
+		if q.Len() != 1 {
+			t.Errorf("queue %q length = %d, want 1", name, q.Len())
 		}
 	}
 }
@@ -542,6 +550,7 @@ func TestVHost_TopicPublish_Wildcard(t *testing.T) {
 	}
 
 	queue, _ := vh.GetQueue("all-orders")
+	queue.Drain()
 	if queue.Len() != 1 {
 		t.Errorf("queue length = %d, want 1", queue.Len())
 	}
@@ -570,6 +579,7 @@ func TestVHost_DefaultExchange_RoutesByQueueName(t *testing.T) {
 	}
 
 	queue, _ := vh.GetQueue("inbox")
+	queue.Drain()
 	if queue.Len() != 1 {
 		t.Errorf("queue length = %d, want 1", queue.Len())
 	}
@@ -625,6 +635,7 @@ func TestVHost_UnbindQueue(t *testing.T) {
 	}
 
 	queue, _ := vh.GetQueue("orders")
+	queue.Drain()
 	if queue.Len() != 0 {
 		t.Errorf("queue length after unbind = %d, want 0", queue.Len())
 	}

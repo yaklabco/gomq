@@ -12,6 +12,20 @@ import (
 	"sync"
 )
 
+// defaultMsgBufSize is the initial capacity for pooled message buffers.
+const defaultMsgBufSize = 256
+
+// msgBufPool reuses byte buffers for message serialization to avoid
+// per-publish heap allocations. Stores *[]byte to satisfy SA6002.
+//
+//nolint:gochecknoglobals // sync.Pool is inherently global
+var msgBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, defaultMsgBufSize)
+		return &b
+	},
+}
+
 const (
 	// schemaVersion is written as a uint32 at byte 0 of each segment file.
 	schemaVersion uint32 = 1
@@ -91,11 +105,26 @@ func (ms *MessageStore) Push(msg *Message) (SegmentPosition, error) {
 	}
 
 	pos := ms.wfile.Size()
-	buf := make([]byte, byteSize)
+
+	poolVal := msgBufPool.Get()
+	bufp, ok := poolVal.(*[]byte)
+	if !ok {
+		b := make([]byte, 0, defaultMsgBufSize)
+		bufp = &b
+	}
+	buf := *bufp
+	if cap(buf) < byteSize {
+		buf = make([]byte, byteSize)
+	} else {
+		buf = buf[:byteSize]
+	}
 	msg.MarshalTo(buf)
 
-	if _, err := ms.wfile.Write(buf); err != nil {
-		return SegmentPosition{}, fmt.Errorf("write message to segment %d: %w", ms.wfileID, err)
+	_, writeErr := ms.wfile.Write(buf)
+	*bufp = buf[:0]
+	msgBufPool.Put(bufp)
+	if writeErr != nil {
+		return SegmentPosition{}, fmt.Errorf("write message to segment %d: %w", ms.wfileID, writeErr)
 	}
 
 	sp := SegmentPosition{

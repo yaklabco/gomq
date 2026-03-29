@@ -36,6 +36,13 @@ func (mc *methodCollector) sendContent(ch uint16, classID uint16, props *amqp.Pr
 	return nil
 }
 
+func (mc *methodCollector) sendDelivery(_ uint16, method amqp.Method, classID uint16, props *amqp.Properties, body []byte) error {
+	if err := mc.sendMethod(0, method); err != nil {
+		return err
+	}
+	return mc.sendContent(0, classID, props, body)
+}
+
 func (mc *methodCollector) lastMethod() amqp.Method {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -55,7 +62,7 @@ func newTestChannel(t *testing.T) (*Channel, *methodCollector) {
 	t.Cleanup(func() { _ = vh.Close() })
 
 	mc := &methodCollector{}
-	ch := NewChannel(1, vh, mc.sendMethod, mc.sendContent)
+	ch := NewChannel(1, vh, mc.sendMethod, mc.sendContent, mc.sendDelivery)
 	return ch, mc
 }
 

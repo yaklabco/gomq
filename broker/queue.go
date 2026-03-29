@@ -14,6 +14,20 @@ import (
 
 const defaultSegmentSize = 8 * 1024 * 1024 // 8 MiB
 
+// Overflow policy values for x-overflow argument.
+const (
+	overflowDropHead = "drop-head"
+	overflowReject   = "reject-publish"
+)
+
+// inboxCapacity is the buffered channel size for the async publish inbox.
+// Messages beyond this capacity cause back pressure on publishers.
+const inboxCapacity = 4096
+
+// writeBatchSize is the maximum number of messages drained from the inbox
+// per lock acquisition in writeLoop.
+const writeBatchSize = 64
+
 // Queue wraps a storage.MessageStore and adds consumer signaling, limits,
 // and AMQP queue semantics such as max-length overflow and exclusive consumers.
 type Queue struct {
@@ -30,6 +44,13 @@ type Queue struct {
 	// Signaling: non-blocking send after each successful publish.
 	msgNotify chan struct{}
 	closed    atomic.Bool
+
+	// Channel-based inbox for lock-free publish path.
+	inbox   chan *storage.Message
+	inboxWg sync.WaitGroup
+	inboxMu sync.Mutex // protects sends to inbox against concurrent close
+	fenceMu sync.Mutex
+	fences  []chan struct{} // per-Drain fence channels, signaled by writeLoop on nil sentinel
 
 	// Limits parsed from arguments.
 	maxLength      int64  // 0 = unlimited (x-max-length)
@@ -57,9 +78,15 @@ type consumerStub struct {
 	notify    chan struct{} // capacity-ready signal
 }
 
-// ErrExclusiveQueue is returned when a second consumer is added to a queue
-// that already has an exclusive consumer.
-var ErrExclusiveQueue = errors.New("queue has an exclusive consumer")
+// Sentinel errors for Queue operations.
+var (
+	// ErrExclusiveQueue is returned when a second consumer is added to a queue
+	// that already has an exclusive consumer.
+	ErrExclusiveQueue = errors.New("queue has an exclusive consumer")
+
+	// ErrQueueClosed is returned when publishing to a closed queue.
+	ErrQueueClosed = errors.New("publish to closed queue")
+)
 
 // NewQueue creates a queue backed by a MessageStore in dataDir/queues/<name>/.
 // Arguments are parsed for x-max-length, x-max-length-bytes, x-message-ttl,
@@ -81,10 +108,14 @@ func NewQueue(name string, durable, exclusive, autoDelete bool, args map[string]
 		store:      store,
 		dataDir:    queueDir,
 		msgNotify:  make(chan struct{}, 1),
-		overflow:   "drop-head",
+		inbox:      make(chan *storage.Message, inboxCapacity),
+		overflow:   overflowDropHead,
 	}
 
 	queue.parseArguments(args)
+
+	queue.inboxWg.Add(1)
+	go queue.writeLoop()
 
 	return queue, nil
 }
@@ -105,46 +136,143 @@ func (q *Queue) IsAutoDelete() bool { return q.autoDelete }
 // due to auto-delete semantics.
 func (q *Queue) MarkedForDelete() bool { return q.markedForDelete.Load() }
 
-// Publish writes a message to the store, enforces overflow limits, and
-// signals waiting consumers. It returns false without error when the queue
-// is at capacity and overflow is "reject-publish".
+// Publish enqueues a message asynchronously via the inbox channel.
+// Use PublishSync for durable queues or when persistence must be confirmed
+// before returning (e.g. publisher confirms).
 func (q *Queue) Publish(msg *storage.Message) (bool, error) {
+	if q.closed.Load() {
+		return false, ErrQueueClosed
+	}
+
+	if q.overflow == overflowReject && q.maxLength > 0 && int64(q.store.Len()) >= q.maxLength {
+		return false, nil
+	}
+
+	owned := *msg
+	if len(msg.Body) > 0 {
+		owned.Body = make([]byte, len(msg.Body))
+		copy(owned.Body, msg.Body)
+	}
+
+	q.inboxMu.Lock()
+	if q.closed.Load() {
+		q.inboxMu.Unlock()
+		return false, ErrQueueClosed
+	}
+	q.inbox <- &owned
+	q.inboxMu.Unlock()
+
+	q.publishCount.Add(1)
+	return true, nil
+}
+
+// PublishSync writes a message directly to the store under the queue lock.
+// This guarantees the message is persisted to the mmap segment before
+// returning — required for durable queues and publisher confirms.
+func (q *Queue) PublishSync(msg *storage.Message) (bool, error) {
+	if q.closed.Load() {
+		return false, ErrQueueClosed
+	}
+
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if q.closed.Load() {
-		return false, errors.New("publish to closed queue")
-	}
-
-	// Enforce max-length limit.
 	if q.maxLength > 0 && int64(q.store.Len()) >= q.maxLength {
-		if q.overflow == "reject-publish" {
+		if q.overflow == overflowReject {
 			return false, nil
 		}
-		// drop-head: remove oldest message.
-		if err := q.dropHead(); err != nil {
-			return false, fmt.Errorf("drop head message: %w", err)
-		}
+		_ = q.dropHead() //nolint:errcheck // best-effort overflow eviction
 	}
 
-	// Enforce max-length-bytes limit.
 	if q.maxLengthBytes > 0 && int64(q.store.ByteSize()) >= q.maxLengthBytes {
-		if q.overflow == "reject-publish" {
+		if q.overflow == overflowReject {
 			return false, nil
 		}
-		if err := q.dropHead(); err != nil {
-			return false, fmt.Errorf("drop head message (bytes limit): %w", err)
-		}
+		_ = q.dropHead() //nolint:errcheck // best-effort overflow eviction
 	}
 
 	if _, err := q.store.Push(msg); err != nil {
-		return false, fmt.Errorf("push message to store: %w", err)
+		return false, fmt.Errorf("write message to store: %w", err)
 	}
 
 	q.publishCount.Add(1)
 	q.signalConsumers()
-
 	return true, nil
+}
+
+// writeLoop is the dedicated goroutine that drains the inbox channel and
+// writes messages to the store in batches. Batching amortises the cost of
+// mutex acquisition across multiple messages.
+//
+// A nil message acts as a fence sentinel: the writeLoop flushes the current
+// batch, then signals the fence channel so that Drain() callers unblock.
+func (q *Queue) writeLoop() {
+	defer q.inboxWg.Done()
+
+	batch := make([]*storage.Message, 0, writeBatchSize)
+
+	for msg := range q.inbox {
+		// nil sentinel means "drain fence" -- signal the waiting Drain caller.
+		if msg == nil {
+			q.signalAllFences()
+			continue
+		}
+
+		batch = append(batch[:0], msg)
+		sawFence := false
+
+		// Drain additional messages without blocking.
+	drain:
+		for len(batch) < cap(batch) {
+			select {
+			case next, ok := <-q.inbox:
+				if !ok {
+					break drain
+				}
+				if next == nil {
+					sawFence = true
+					break drain
+				}
+				batch = append(batch, next)
+			default:
+				break drain
+			}
+		}
+
+		q.mu.Lock()
+		for _, queued := range batch {
+			q.publishToStore(queued)
+		}
+		q.mu.Unlock()
+
+		q.signalConsumers()
+
+		if sawFence {
+			q.signalAllFences()
+		}
+	}
+}
+
+// publishToStore writes a single message to the store, enforcing overflow
+// limits. Must be called with q.mu held.
+func (q *Queue) publishToStore(msg *storage.Message) {
+	// Enforce max-length limit.
+	if q.maxLength > 0 && int64(q.store.Len()) >= q.maxLength {
+		if q.overflow == overflowReject {
+			return
+		}
+		_ = q.dropHead() //nolint:errcheck // non-fatal; segment GC handles cleanup
+	}
+
+	// Enforce max-length-bytes limit.
+	if q.maxLengthBytes > 0 && int64(q.store.ByteSize()) >= q.maxLengthBytes {
+		if q.overflow == overflowReject {
+			return
+		}
+		_ = q.dropHead() //nolint:errcheck // non-fatal; segment GC handles cleanup
+	}
+
+	_, _ = q.store.Push(msg) //nolint:errcheck // non-fatal for individual batch messages
 }
 
 // Get shifts one message from the front of the queue (basic.get semantics).
@@ -191,15 +319,17 @@ func (q *Queue) Reject(sp storage.SegmentPosition, _ bool) error {
 	return nil
 }
 
-// Purge deletes up to limit ready messages from the front of the queue
-// and returns the number actually purged.
+// Purge drains the inbox and then deletes up to limit ready messages from
+// the front of the queue, returning the number actually purged.
 func (q *Queue) Purge(limit int) int {
+	q.Drain()
 	return q.store.Purge(limit)
 }
 
-// Len returns the number of messages in the queue.
+// Len returns the number of messages in the queue, including those
+// buffered in the async inbox that have not yet been written to the store.
 func (q *Queue) Len() uint32 {
-	return q.store.Len()
+	return q.store.Len() + uint32(len(q.inbox))
 }
 
 // AddConsumer registers a consumer with the queue. It returns an error if
@@ -260,11 +390,16 @@ func (q *Queue) WaitForMessage(ctx context.Context) bool {
 	}
 }
 
-// Close closes the underlying message store.
+// Close shuts down the writer goroutine, drains remaining messages, and
+// closes the underlying message store.
 func (q *Queue) Close() error {
 	if q.closed.Swap(true) {
 		return nil
 	}
+	q.inboxMu.Lock()
+	close(q.inbox)
+	q.inboxMu.Unlock()
+	q.inboxWg.Wait()
 	return q.store.Close()
 }
 
@@ -277,6 +412,43 @@ func (q *Queue) Delete() error {
 		return fmt.Errorf("remove queue data dir %q: %w", q.dataDir, err)
 	}
 	return nil
+}
+
+// Drain blocks until all messages currently in the inbox have been written
+// to the store. Each Drain call gets its own fence so concurrent callers
+// do not interfere.
+func (q *Queue) Drain() {
+	if q.closed.Load() {
+		return
+	}
+
+	fence := make(chan struct{})
+
+	q.fenceMu.Lock()
+	q.fences = append(q.fences, fence)
+	q.fenceMu.Unlock()
+
+	q.inboxMu.Lock()
+	if q.closed.Load() {
+		q.inboxMu.Unlock()
+		q.signalAllFences()
+		return
+	}
+	q.inbox <- nil // sentinel
+	q.inboxMu.Unlock()
+
+	<-fence
+}
+
+// signalAllFences unblocks all pending Drain callers.
+func (q *Queue) signalAllFences() {
+	q.fenceMu.Lock()
+	fences := q.fences
+	q.fences = nil
+	q.fenceMu.Unlock()
+	for _, ch := range fences {
+		close(ch)
+	}
 }
 
 // signalConsumers performs a non-blocking send on the message notify channel.

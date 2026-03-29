@@ -202,6 +202,8 @@ func (v *VHost) DeleteQueue(name string, ifUnused, ifEmpty bool) (uint32, error)
 		return 0, fmt.Errorf("queue %q: %w", name, ErrQueueHasConsumers)
 	}
 
+	// Drain the async inbox so Len() is accurate for the ifEmpty check.
+	queue.Drain()
 	msgCount := queue.Len()
 
 	if ifEmpty && msgCount > 0 {
@@ -305,18 +307,31 @@ func (v *VHost) UnbindQueue(queueName, exchangeName, routingKey string, args map
 
 // --- Publishing ---
 
-// Publish routes a message through the named exchange. For the default
-// exchange, the message is routed directly to the queue matching the
-// routing key.
-func (v *VHost) Publish(exchangeName, routingKey string, _ bool, msg *storage.Message) error {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
+// defaultRouteResultSize is the initial capacity for route result maps.
+const defaultRouteResultSize = 4
 
+// routeResultPool amortises map allocation on the publish hot path.
+//
+//nolint:gochecknoglobals // sync.Pool is intentionally global for cross-goroutine reuse
+var routeResultPool = sync.Pool{
+	New: func() any { return make(map[Destination]struct{}, defaultRouteResultSize) },
+}
+
+// Publish routes a message through the named exchange. When syncPersist is
+// true, the message is written synchronously to the store before returning
+// (required for durable queues with publisher confirms). When false, the
+// message is enqueued asynchronously for better throughput.
+func (v *VHost) Publish(exchangeName, routingKey string, syncPersist bool, msg *storage.Message) error {
+	// Snapshot the exchange pointer under the read lock, then release
+	// immediately. The exchange has its own internal synchronisation.
+	v.mu.RLock()
 	if v.closed {
+		v.mu.RUnlock()
 		return ErrVHostClosed
 	}
-
 	exchange, ok := v.exchanges[exchangeName]
+	v.mu.RUnlock()
+
 	if !ok {
 		return fmt.Errorf("exchange %q: %w", exchangeName, ErrExchangeNotFound)
 	}
@@ -328,19 +343,35 @@ func (v *VHost) Publish(exchangeName, routingKey string, _ bool, msg *storage.Me
 		Headers:      msg.Properties.Headers,
 	}
 
-	results := make(map[Destination]struct{})
+	poolVal := routeResultPool.Get()
+	results, poolOK := poolVal.(map[Destination]struct{})
+	if !poolOK {
+		results = make(map[Destination]struct{}, defaultRouteResultSize)
+	}
 	exchange.Route(brokerMsg, results)
 
 	for dest := range results {
-		queue, ok := dest.(*Queue)
-		if !ok {
+		queue, qOk := dest.(*Queue)
+		if !qOk {
 			continue
 		}
 
-		if _, err := queue.Publish(msg); err != nil {
+		var err error
+		if syncPersist && queue.IsDurable() {
+			_, err = queue.PublishSync(msg)
+		} else {
+			_, err = queue.Publish(msg)
+		}
+		if err != nil {
+			// Clear and return map to pool before returning.
+			clear(results)
+			routeResultPool.Put(results)
 			return fmt.Errorf("publish to queue %q: %w", queue.Name(), err)
 		}
 	}
+
+	clear(results)
+	routeResultPool.Put(results)
 
 	return nil
 }
