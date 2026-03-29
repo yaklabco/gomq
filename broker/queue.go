@@ -62,6 +62,17 @@ type Queue struct {
 	deadLetterRoutingKey string // x-dead-letter-routing-key (optional override)
 	vhost                *VHost // back-reference for DLX republishing
 
+	// Single active consumer: only one consumer receives messages at a time.
+	singleActiveConsumer bool   // x-single-active-consumer
+	activeConsumerTag    string // tag of the currently active consumer
+
+	// Delivery limit: messages requeued more than this many times are dead-lettered.
+	// deliveryMu is a separate lock to avoid deadlocks with q.mu (which is held
+	// during GetFunc callbacks that may trigger Reject via the channel).
+	deliveryMu       sync.Mutex
+	deliveryLimit    int64            // x-delivery-limit, 0 = unlimited
+	deliveryCounters map[string]int64 // maps message segment position string to count
+
 	// Limits parsed from arguments.
 	maxLength      int64  // 0 = unlimited (x-max-length)
 	maxLengthBytes int64  // 0 = unlimited (x-max-length-bytes)
@@ -87,7 +98,18 @@ type consumerStub struct {
 	NoAck     bool
 	Exclusive bool
 	Priority  int
+	consumer  *Consumer     // back-reference for activation and capacity checks
 	notify    chan struct{} // capacity-ready signal
+}
+
+// hasCapacity reports whether the consumer backing this stub can accept
+// another delivery. Returns true if the consumer has no prefetch limit
+// or has room below the limit.
+func (cs *consumerStub) hasCapacity() bool {
+	if cs.consumer == nil {
+		return false
+	}
+	return cs.consumer.HasCapacity()
 }
 
 // Sentinel errors for Queue operations.
@@ -414,16 +436,46 @@ func (q *Queue) Ack(sp storage.SegmentPosition) error {
 
 // Reject rejects a message. If requeue is true the message is placed back at
 // the front of the queue for redelivery with the Redelivered flag set.
+// If the delivery limit is configured and the requeue count exceeds it,
+// the message is dead-lettered instead of requeued.
 // If requeue is false the message is dead-lettered (if a DLX is configured)
 // or deleted.
 func (q *Queue) Reject(sp storage.SegmentPosition, requeue bool) error {
 	if requeue {
+		// Check delivery limit before requeuing.
+		if q.deliveryLimit > 0 {
+			key := sp.String()
+			q.deliveryMu.Lock()
+			q.deliveryCounters[key]++
+			count := q.deliveryCounters[key]
+			q.deliveryMu.Unlock()
+
+			if count >= q.deliveryLimit {
+				// Delivery limit reached — dead-letter instead of requeue.
+				q.deliveryMu.Lock()
+				delete(q.deliveryCounters, key)
+				q.deliveryMu.Unlock()
+				if err := q.deadLetterOrDelete(sp, "delivery-limit"); err != nil {
+					return fmt.Errorf("dead-letter message at %s (delivery limit): %w", sp, err)
+				}
+				return nil
+			}
+		}
+
 		q.mu.Lock()
 		q.requeued = append(q.requeued, sp)
 		q.mu.Unlock()
 		q.signalConsumers()
 		return nil
 	}
+
+	// Clean up delivery counter on final rejection.
+	if q.deliveryLimit > 0 {
+		q.deliveryMu.Lock()
+		delete(q.deliveryCounters, sp.String())
+		q.deliveryMu.Unlock()
+	}
+
 	if err := q.deadLetterOrDelete(sp, "rejected"); err != nil {
 		return fmt.Errorf("reject message at %s: %w", sp, err)
 	}
@@ -463,11 +515,21 @@ func (q *Queue) AddConsumer(consumer *consumerStub) error {
 	q.consumers = append(q.consumers, consumer)
 	q.hadConsumers = true
 	q.stopExpireTimer()
+
+	// For single-active-consumer queues, activate the first consumer.
+	if q.singleActiveConsumer && q.activeConsumerTag == "" {
+		q.activeConsumerTag = consumer.Tag
+		if consumer.consumer != nil {
+			consumer.consumer.active.Store(true)
+		}
+	}
+
 	return nil
 }
 
 // RemoveConsumer removes the consumer with the given tag. If the queue is
 // auto-delete and had consumers but now has none, it is marked for deletion.
+// For single-active-consumer queues, the next consumer in line is activated.
 func (q *Queue) RemoveConsumer(tag string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -476,6 +538,20 @@ func (q *Queue) RemoveConsumer(tag string) {
 		if c.Tag == tag {
 			q.consumers = append(q.consumers[:i], q.consumers[i+1:]...)
 			break
+		}
+	}
+
+	// If the removed consumer was the active one, activate the next.
+	if q.singleActiveConsumer && q.activeConsumerTag == tag {
+		q.activeConsumerTag = ""
+		if len(q.consumers) > 0 {
+			next := q.consumers[0]
+			q.activeConsumerTag = next.Tag
+			if next.consumer != nil {
+				next.consumer.active.Store(true)
+			}
+			// Signal so the newly active consumer wakes up.
+			q.signalConsumers()
 		}
 	}
 
@@ -574,6 +650,20 @@ func (q *Queue) signalConsumers() {
 	case q.msgNotify <- struct{}{}:
 	default:
 	}
+}
+
+// hasPriorityConsumers reports whether any consumer on this queue has a
+// non-zero priority. Called by consumers to decide whether priority
+// yielding logic is needed.
+func (q *Queue) hasPriorityConsumers() bool {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	for _, c := range q.consumers {
+		if c.Priority != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // startExpireTimer starts the queue expiry timer if x-expires is configured
@@ -742,6 +832,19 @@ func (q *Queue) parseArguments(args map[string]interface{}) {
 
 	if v, ok := args["x-expires"]; ok {
 		q.expiresMs = toInt64(v)
+	}
+
+	if v, ok := args["x-single-active-consumer"]; ok {
+		if b, bOK := v.(bool); bOK {
+			q.singleActiveConsumer = b
+		}
+	}
+
+	if v, ok := args["x-delivery-limit"]; ok {
+		q.deliveryLimit = toInt64(v)
+		if q.deliveryLimit > 0 {
+			q.deliveryCounters = make(map[string]int64)
+		}
 	}
 }
 

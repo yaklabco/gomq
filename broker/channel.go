@@ -330,6 +330,14 @@ func (ch *Channel) handleBasicConsume(consume *amqp.BasicConsume) error {
 	prefetch := ch.prefetchCount
 	noAck := consume.NoAck
 
+	// Parse consumer priority from arguments (x-priority, default 0).
+	var priority int
+	if consume.Arguments != nil {
+		if v, ok := consume.Arguments["x-priority"]; ok {
+			priority = int(toInt64(v))
+		}
+	}
+
 	chID := ch.id
 	consumer := NewConsumer(tag, queue, noAck, consume.Exclusive, prefetch,
 		func(env *storage.Envelope, deliveryTag uint64) error {
@@ -361,6 +369,8 @@ func (ch *Channel) handleBasicConsume(consume *amqp.BasicConsume) error {
 			return nil
 		},
 	)
+
+	consumer.SetPriority(priority)
 
 	if err := queue.AddConsumer(consumer.stub()); err != nil {
 		return fmt.Errorf("basic.consume: %w", err)
@@ -479,20 +489,60 @@ func (ch *Channel) finishPublish() error {
 	// Use synchronous persistence when confirms are enabled — the BasicAck
 	// must not be sent until the message is on disk.
 	syncPersist := ch.confirmMode
-	err := ch.vhost.Publish(ch.pubExchange, ch.pubRoutingKey, syncPersist, msg)
+
+	var routed bool
+	var err error
+	if ch.pubMandatory {
+		routed, err = ch.vhost.PublishMandatory(ch.pubExchange, ch.pubRoutingKey, syncPersist, msg)
+	} else {
+		err = ch.vhost.Publish(ch.pubExchange, ch.pubRoutingKey, syncPersist, msg)
+		routed = true // non-mandatory: we don't care about route status
+	}
+
+	// Capture body and props before returning the buffer to pool.
+	returnBody := ch.pubBody
+	returnProps := ch.pubProperties
+	returnExchange := ch.pubExchange
+	returnRoutingKey := ch.pubRoutingKey
 
 	// Return body buffer to pool after publish is complete.
-	if ch.pubBodyBufp != nil {
+	returnNeeded := ch.pubMandatory && !routed && err == nil
+	if ch.pubBodyBufp != nil && !returnNeeded {
 		*ch.pubBodyBufp = ch.pubBody[:0]
 		bodyPool.Put(ch.pubBodyBufp)
 		ch.pubBodyBufp = nil
 		ch.pubBody = nil
 	}
 
+	// Send Basic.Return for mandatory messages that could not be routed.
+	if returnNeeded {
+		ch.mu.Unlock()
+		returnErr := ch.sendMethod(ch.id, &amqp.BasicReturn{
+			ReplyCode:  amqp.NoRoute,
+			ReplyText:  "NO_ROUTE",
+			Exchange:   returnExchange,
+			RoutingKey: returnRoutingKey,
+		})
+		if returnErr == nil {
+			returnErr = ch.sendContent(ch.id, amqp.ClassBasic, &returnProps, returnBody)
+		}
+		ch.mu.Lock()
+
+		// Now return the body buffer.
+		if ch.pubBodyBufp != nil {
+			*ch.pubBodyBufp = ch.pubBody[:0]
+			bodyPool.Put(ch.pubBodyBufp)
+			ch.pubBodyBufp = nil
+			ch.pubBody = nil
+		}
+
+		if returnErr != nil {
+			return fmt.Errorf("send basic.return: %w", returnErr)
+		}
+	}
+
 	if ch.confirmMode {
 		ch.confirmCount++
-		// Send BasicAck for the confirm; must hold the lock so we
-		// release it briefly for the write callback.
 		tag := ch.confirmCount
 		ch.mu.Unlock()
 		sendErr := ch.sendMethod(ch.id, &amqp.BasicAck{DeliveryTag: tag})
