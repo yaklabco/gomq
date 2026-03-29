@@ -473,7 +473,10 @@ func (ch *Channel) finishPublish() error {
 		Body:         ch.pubBody,
 	}
 
-	err := ch.vhost.Publish(ch.pubExchange, ch.pubRoutingKey, ch.pubMandatory, msg)
+	// Use synchronous persistence when confirms are enabled — the BasicAck
+	// must not be sent until the message is on disk.
+	syncPersist := ch.confirmMode
+	err := ch.vhost.Publish(ch.pubExchange, ch.pubRoutingKey, syncPersist, msg)
 
 	// Return body buffer to pool after publish is complete.
 	if ch.pubBodyBufp != nil {

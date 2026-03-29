@@ -202,6 +202,8 @@ func (v *VHost) DeleteQueue(name string, ifUnused, ifEmpty bool) (uint32, error)
 		return 0, fmt.Errorf("queue %q: %w", name, ErrQueueHasConsumers)
 	}
 
+	// Drain the async inbox so Len() is accurate for the ifEmpty check.
+	queue.Drain()
 	msgCount := queue.Len()
 
 	if ifEmpty && msgCount > 0 {
@@ -315,10 +317,11 @@ var routeResultPool = sync.Pool{
 	New: func() any { return make(map[Destination]struct{}, defaultRouteResultSize) },
 }
 
-// Publish routes a message through the named exchange. For the default
-// exchange, the message is routed directly to the queue matching the
-// routing key.
-func (v *VHost) Publish(exchangeName, routingKey string, _ bool, msg *storage.Message) error {
+// Publish routes a message through the named exchange. When syncPersist is
+// true, the message is written synchronously to the store before returning
+// (required for durable queues with publisher confirms). When false, the
+// message is enqueued asynchronously for better throughput.
+func (v *VHost) Publish(exchangeName, routingKey string, syncPersist bool, msg *storage.Message) error {
 	// Snapshot the exchange pointer under the read lock, then release
 	// immediately. The exchange has its own internal synchronisation.
 	v.mu.RLock()
@@ -353,7 +356,13 @@ func (v *VHost) Publish(exchangeName, routingKey string, _ bool, msg *storage.Me
 			continue
 		}
 
-		if _, err := queue.Publish(msg); err != nil {
+		var err error
+		if syncPersist && queue.IsDurable() {
+			_, err = queue.PublishSync(msg)
+		} else {
+			_, err = queue.Publish(msg)
+		}
+		if err != nil {
 			// Clear and return map to pool before returning.
 			clear(results)
 			routeResultPool.Put(results)
