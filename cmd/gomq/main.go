@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"syscall"
 
-	"github.com/jamesainslie/gomq"
-	"github.com/jamesainslie/gomq/config"
+	"github.com/yaklabco/gomq"
+	"github.com/yaklabco/gomq/config"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/storage"
 )
 
 // Consumer drives message delivery from a queue to a client channel.

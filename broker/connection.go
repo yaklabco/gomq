@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jamesainslie/gomq/amqp"
-	"github.com/jamesainslie/gomq/auth"
-	"github.com/jamesainslie/gomq/config"
+	"github.com/yaklabco/gomq/amqp"
+	"github.com/yaklabco/gomq/auth"
+	"github.com/yaklabco/gomq/config"
 )
 
 // protocolHeader is the AMQP 0-9-1 protocol header sent by clients.

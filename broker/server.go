@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jamesainslie/gomq/amqp"
-	"github.com/jamesainslie/gomq/auth"
-	"github.com/jamesainslie/gomq/config"
+	"github.com/yaklabco/gomq/amqp"
+	"github.com/yaklabco/gomq/auth"
+	"github.com/yaklabco/gomq/config"
 )
 
 // diskCheckInterval is how often the server checks available disk space.

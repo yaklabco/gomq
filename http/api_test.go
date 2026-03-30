@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jamesainslie/gomq/broker"
-	"github.com/jamesainslie/gomq/config"
-	mgmt "github.com/jamesainslie/gomq/http"
-	"github.com/jamesainslie/gomq/shovel"
+	"github.com/yaklabco/gomq/broker"
+	"github.com/yaklabco/gomq/config"
+	mgmt "github.com/yaklabco/gomq/http"
+	"github.com/yaklabco/gomq/shovel"
 )
 
 // newTestAPI creates a Server, UserStore, and API for testing.

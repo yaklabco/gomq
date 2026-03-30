@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/auth"
-	"github.com/jamesainslie/gomq/broker"
-	"github.com/jamesainslie/gomq/mqtt"
+	"github.com/yaklabco/gomq/auth"
+	"github.com/yaklabco/gomq/broker"
+	"github.com/yaklabco/gomq/mqtt"
 )
 
 // testTimeout is the maximum time to wait for async operations in tests.

@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesainslie/gomq/amqp"
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/amqp"
+	"github.com/yaklabco/gomq/storage"
 )
 
 // sendMethodFn writes a method frame to the connection on the given channel.

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/amqp"
-	"github.com/jamesainslie/gomq/auth"
-	"github.com/jamesainslie/gomq/config"
+	"github.com/yaklabco/gomq/amqp"
+	"github.com/yaklabco/gomq/auth"
+	"github.com/yaklabco/gomq/config"
 )
 
 // testSetup creates a temp data dir with a default vhost and user store.

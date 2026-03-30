@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/storage"
 )
 
 func makeStorageMsg(exchange, routingKey, body string) *storage.Message {

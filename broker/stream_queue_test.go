@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/storage"
 )
 
 func newStreamQueue(t *testing.T, name string) *Queue {

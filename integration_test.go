@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq"
-	mqttpkg "github.com/jamesainslie/gomq/mqtt"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/yaklabco/gomq"
+	mqttpkg "github.com/yaklabco/gomq/mqtt"
 )
 
 const testTimeout = 10 * time.Second

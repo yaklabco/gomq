@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesainslie/gomq/auth"
-	"github.com/jamesainslie/gomq/broker"
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/auth"
+	"github.com/yaklabco/gomq/broker"
+	"github.com/yaklabco/gomq/storage"
 )
 
 // amqpTopicExchange is the AMQP exchange name used for MQTT message routing.

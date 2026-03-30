@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/yaklabco/gomq"
 )
 
 func TestTLS_PublishConsume(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/storage"
 )
 
 const defaultSegmentSize = 8 * 1024 * 1024 // 8 MiB

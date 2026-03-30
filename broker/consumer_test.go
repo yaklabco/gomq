@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/storage"
 )
 
 func TestConsumer_ReceivesPublishedMessages(t *testing.T) {

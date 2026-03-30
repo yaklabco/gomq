@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jamesainslie/gomq/shovel"
+	"github.com/yaklabco/gomq/shovel"
 )
 
 // --- Shovels ---

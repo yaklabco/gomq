@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jamesainslie/gomq/auth"
-	"github.com/jamesainslie/gomq/broker"
-	"github.com/jamesainslie/gomq/shovel"
+	"github.com/yaklabco/gomq/auth"
+	"github.com/yaklabco/gomq/broker"
+	"github.com/yaklabco/gomq/shovel"
 )
 
 // Version is the broker version reported by the management API.
