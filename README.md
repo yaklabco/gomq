@@ -138,32 +138,32 @@ ch.PublishWithContext(ctx, "", "my-queue", false, false, amqp.Publishing{
 
 GoMQ faithfully ports LavinMQ's architecture to Go:
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                        GoMQ Broker                       │
-│                                                          │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌───────────┐  │
-│  │  AMQP   │  │  AMQPS  │  │  MQTT   │  │ HTTP API  │  │
-│  │ :5672   │  │ :5671   │  │ :1883   │  │ :15672    │  │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └─────┬─────┘  │
-│       │            │            │              │         │
-│  ┌────┴────────────┴────────────┴──────────────┘         │
-│  │                                                       │
-│  │  VHost ("/")                                          │
-│  │  ├── Exchanges (direct, fanout, topic, headers, ...)  │
-│  │  ├── Queues (standard, priority, stream)              │
-│  │  ├── Bindings                                         │
-│  │  └── Policies                                         │
-│  │                                                       │
-│  └───────────────────────┬───────────────────────────────┘
-│                          │                               │
-│  ┌───────────────────────┴───────────────────────────┐   │
-│  │  Storage Engine (mmap)                            │   │
-│  │  ├── Segment files: msgs.XXXXXXXXXX (8 MiB each) │   │
-│  │  ├── Ack files: acks.XXXXXXXXXX                   │   │
-│  │  └── Automatic segment rotation & GC              │   │
-│  └───────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph broker["GoMQ Broker"]
+        subgraph protocols["Protocol Listeners"]
+            amqp["AMQP<br/>:5672"]
+            amqps["AMQPS<br/>:5671"]
+            mqtt["MQTT<br/>:1883"]
+            http["HTTP API<br/>:15672"]
+        end
+
+        subgraph vhost["VHost ('/')"]
+            exchanges["Exchanges<br/>direct, fanout, topic,<br/>headers, x-consistent-hash"]
+            queues["Queues<br/>standard, priority, stream"]
+            bindings["Bindings"]
+            policies["Policies"]
+        end
+
+        subgraph storage["Storage Engine (mmap)"]
+            segments["Segment files<br/>msgs.XXXXXXXXXX (8 MiB each)"]
+            acks["Ack files<br/>acks.XXXXXXXXXX"]
+            gc["Automatic segment<br/>rotation & GC"]
+        end
+
+        amqp & amqps & mqtt & http --> vhost
+        vhost --> storage
+    end
 ```
 
 ### Storage Engine
