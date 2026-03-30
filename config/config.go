@@ -3,6 +3,12 @@ package config
 
 import "time"
 
+// Default clustering configuration values.
+const (
+	DefaultClusterBind = "127.0.0.1"
+	DefaultClusterPort = 5679
+)
+
 // Default configuration values matching LavinMQ.
 const (
 	DefaultDataDir                     = "/var/lib/gomq"
@@ -55,6 +61,13 @@ type Config struct {
 	SetTimestamp            bool
 	DefaultUser             string
 	DefaultPasswordHash     string
+
+	// Clustering
+	ClusterEnabled   bool
+	ClusterBind      string // replication listen address
+	ClusterPort      int    // replication listen port
+	ClusterPassword  string // shared secret for replication auth
+	ClusterLeaderURI string // if set, this node is a follower
 }
 
 // Default returns a Config with LavinMQ-compatible defaults.
@@ -84,5 +97,7 @@ func Default() *Config {
 		SetTimestamp:            false,
 		DefaultUser:             DefaultUser,
 		DefaultPasswordHash:     DefaultPasswordHash,
+		ClusterBind:             DefaultClusterBind,
+		ClusterPort:             DefaultClusterPort,
 	}
 }

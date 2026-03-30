@@ -85,6 +85,8 @@ func applyConfigValue(cfg *Config, section, key, value string) error {
 		return applyMgmtSection(cfg, key, value)
 	case "mqtt":
 		return applyMQTTSection(cfg, key, value)
+	case "clustering":
+		return applyClusteringSection(cfg, key, value)
 	default:
 		// Unknown sections are silently ignored for forward compatibility.
 		return nil
@@ -164,6 +166,29 @@ func applyMQTTSection(cfg *Config, key, value string) error {
 			return fmt.Errorf("parse port %q: %w", value, err)
 		}
 		cfg.MQTTPort = port
+	default:
+		// Unknown keys are silently ignored.
+	}
+
+	return nil
+}
+
+func applyClusteringSection(cfg *Config, key, value string) error {
+	switch key {
+	case "enabled":
+		cfg.ClusterEnabled = value == "true" || value == "1"
+	case iniKeyBind:
+		cfg.ClusterBind = value
+	case iniKeyPort:
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse port %q: %w", value, err)
+		}
+		cfg.ClusterPort = port
+	case "password":
+		cfg.ClusterPassword = value
+	case "leader_uri":
+		cfg.ClusterLeaderURI = value
 	default:
 		// Unknown keys are silently ignored.
 	}

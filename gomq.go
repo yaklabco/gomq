@@ -8,12 +8,14 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/jamesainslie/gomq/broker"
+	"github.com/jamesainslie/gomq/cluster"
 	"github.com/jamesainslie/gomq/config"
 	mgmt "github.com/jamesainslie/gomq/http"
 	mqttpkg "github.com/jamesainslie/gomq/mqtt"
@@ -29,6 +31,9 @@ type Broker struct {
 	cfg    *config.Config
 	api    *mgmt.API
 	mqtt   *mqttpkg.Broker
+
+	replServer *cluster.ReplicationServer
+	follower   *cluster.Follower
 
 	mu        sync.Mutex
 	addr      net.Addr
@@ -107,6 +112,41 @@ func WithMQTTBind(addr string) Option {
 	}
 }
 
+// WithCluster enables clustering.
+func WithCluster(enabled bool) Option {
+	return func(c *config.Config) {
+		c.ClusterEnabled = enabled
+	}
+}
+
+// WithClusterBind sets the clustering replication bind address.
+func WithClusterBind(addr string) Option {
+	return func(c *config.Config) {
+		c.ClusterBind = addr
+	}
+}
+
+// WithClusterPort sets the clustering replication port.
+func WithClusterPort(port int) Option {
+	return func(c *config.Config) {
+		c.ClusterPort = port
+	}
+}
+
+// WithClusterPassword sets the shared secret for replication auth.
+func WithClusterPassword(pw string) Option {
+	return func(c *config.Config) {
+		c.ClusterPassword = pw
+	}
+}
+
+// WithClusterLeaderURI makes this node a follower of the given leader.
+func WithClusterLeaderURI(uri string) Option {
+	return func(c *config.Config) {
+		c.ClusterLeaderURI = uri
+	}
+}
+
 // New creates a broker with the given options applied to default config.
 func New(opts ...Option) (*Broker, error) {
 	cfg := config.Default()
@@ -172,6 +212,13 @@ func (b *Broker) Serve(ctx context.Context, ln net.Listener) error {
 	if b.cfg.MQTTPort >= 0 {
 		if err := b.startMQTT(ctx); err != nil {
 			return fmt.Errorf("start mqtt: %w", err)
+		}
+	}
+
+	// Start clustering if enabled.
+	if b.cfg.ClusterEnabled {
+		if err := b.startCluster(ctx); err != nil {
+			return fmt.Errorf("start cluster: %w", err)
 		}
 	}
 
@@ -306,7 +353,70 @@ func (b *Broker) WaitForAddr(ctx context.Context) net.Addr {
 
 // Close shuts down the broker, closing all connections and vhosts.
 func (b *Broker) Close() error {
+	if b.replServer != nil {
+		if err := b.replServer.Close(); err != nil {
+			log.Printf("close replication server: %v", err)
+		}
+	}
 	return b.server.Close()
+}
+
+// startCluster starts clustering as either leader or follower based
+// on configuration. If ClusterLeaderURI is empty, this node starts as
+// the leader (replication server). Otherwise it connects as a follower.
+func (b *Broker) startCluster(ctx context.Context) error {
+	if b.cfg.ClusterLeaderURI == "" {
+		return b.startAsLeader(ctx)
+	}
+	return b.startAsFollower(ctx)
+}
+
+// startAsLeader starts the replication server.
+func (b *Broker) startAsLeader(ctx context.Context) error {
+	rs, err := cluster.NewReplicationServer(
+		ctx,
+		b.cfg.ClusterBind,
+		b.cfg.ClusterPort,
+		b.cfg.DataDir,
+		b.cfg.ClusterPassword,
+	)
+	if err != nil {
+		return fmt.Errorf("create replication server: %w", err)
+	}
+
+	b.replServer = rs
+
+	go func() {
+		if startErr := rs.Start(ctx); startErr != nil {
+			log.Printf("replication server: %v", startErr)
+		}
+	}()
+
+	return nil
+}
+
+// startAsFollower connects to the leader and starts streaming actions.
+func (b *Broker) startAsFollower(ctx context.Context) error {
+	follower := cluster.NewFollower(
+		b.cfg.ClusterLeaderURI,
+		b.cfg.DataDir,
+		b.cfg.ClusterPassword,
+	)
+
+	conn, err := follower.Connect(ctx)
+	if err != nil {
+		return fmt.Errorf("connect to leader %s: %w", b.cfg.ClusterLeaderURI, err)
+	}
+
+	b.follower = follower
+
+	go func() {
+		if streamErr := follower.StreamActions(ctx, conn); streamErr != nil {
+			log.Printf("follower stream: %v", streamErr)
+		}
+	}()
+
+	return nil
 }
 
 func (b *Broker) setAddr(addr net.Addr) {

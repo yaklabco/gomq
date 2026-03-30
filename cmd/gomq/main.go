@@ -30,6 +30,11 @@ func main() {
 	flag.IntVar(&cfg.AMQPSPort, "amqps-port", cfg.AMQPSPort, "AMQPS (TLS) listen port (-1 to disable)")
 	flag.StringVar(&cfg.MQTTBind, "mqtt-bind", cfg.MQTTBind, "MQTT bind address")
 	flag.IntVar(&cfg.MQTTPort, "mqtt-port", cfg.MQTTPort, "MQTT listen port (-1 to disable)")
+	flag.BoolVar(&cfg.ClusterEnabled, "cluster", cfg.ClusterEnabled, "Enable clustering")
+	flag.StringVar(&cfg.ClusterBind, "cluster-bind", cfg.ClusterBind, "Cluster replication bind address")
+	flag.IntVar(&cfg.ClusterPort, "cluster-port", cfg.ClusterPort, "Cluster replication port")
+	flag.StringVar(&cfg.ClusterPassword, "cluster-password", cfg.ClusterPassword, "Cluster replication password")
+	flag.StringVar(&cfg.ClusterLeaderURI, "cluster-leader", cfg.ClusterLeaderURI, "Leader address (host:port); if set, this node is a follower")
 	flag.Parse()
 
 	// Load config file first, then CLI flags override.
@@ -84,6 +89,18 @@ func applyFlag(cfg *config.Config, flg *flag.Flag) {
 		if port, err := strconv.Atoi(flg.Value.String()); err == nil {
 			cfg.MQTTPort = port
 		}
+	case "cluster":
+		cfg.ClusterEnabled = flg.Value.String() == "true"
+	case "cluster-bind":
+		cfg.ClusterBind = flg.Value.String()
+	case "cluster-port":
+		if port, err := strconv.Atoi(flg.Value.String()); err == nil {
+			cfg.ClusterPort = port
+		}
+	case "cluster-password":
+		cfg.ClusterPassword = flg.Value.String()
+	case "cluster-leader":
+		cfg.ClusterLeaderURI = flg.Value.String()
 	}
 }
 
@@ -103,6 +120,18 @@ func run(cfg *config.Config) error {
 
 	opts = append(opts, gomq.WithMQTTPort(cfg.MQTTPort))
 	opts = append(opts, gomq.WithMQTTBind(cfg.MQTTBind))
+
+	if cfg.ClusterEnabled {
+		opts = append(opts,
+			gomq.WithCluster(true),
+			gomq.WithClusterBind(cfg.ClusterBind),
+			gomq.WithClusterPort(cfg.ClusterPort),
+			gomq.WithClusterPassword(cfg.ClusterPassword),
+		)
+		if cfg.ClusterLeaderURI != "" {
+			opts = append(opts, gomq.WithClusterLeaderURI(cfg.ClusterLeaderURI))
+		}
+	}
 
 	brk, err := gomq.New(opts...)
 	if err != nil {

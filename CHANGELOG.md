@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Leader-follower clustering with file-level replication over TCP
+- `cluster` package: `FileIndex` (CRC32 checksums), `Action` encode/decode, `ReplicationServer`, `Follower`, `Election`
+- Replication protocol with `GOMQR` header, password authentication, and action streaming
+- Single-leader mode: leader broadcasts append/replace/delete actions to connected followers
+- Full sync support via `FileIndex.Diff` for detecting missing or changed files
+- `[clustering]` INI config section with `enabled`, `bind`, `port`, `password`, and `leader_uri` keys
+- `--cluster`, `--cluster-bind`, `--cluster-port`, `--cluster-password`, `--cluster-leader` CLI flags
+- `WithCluster`, `WithClusterBind`, `WithClusterPort`, `WithClusterPassword`, `WithClusterLeaderURI` embeddable API options
 - MQTT 3.1.1 protocol support with full packet codec (all 14 control packet types)
 - MQTT broker bridging to AMQP via `amq.topic` exchange with topic conversion (`/` to `.`, `+` to `*`)
 - MQTT QoS 0, QoS 1 (PUBACK), and QoS 2 (PUBREC/PUBREL/PUBCOMP) message delivery
