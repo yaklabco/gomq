@@ -42,17 +42,17 @@ func EncodeActions(actions []Action) ([]byte, error) {
 	buf := make([]byte, 0, actionCountSize+len(actions)*32)
 
 	// Action count.
-	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(actions)))
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(actions))) //nolint:gosec // safe, action count is small
 
 	for _, action := range actions {
 		buf = append(buf, byte(action.Type))
 
 		// Path.
-		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(action.Path)))
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(action.Path))) //nolint:gosec // safe, paths are short
 		buf = append(buf, action.Path...)
 
 		// Data.
-		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(action.Data)))
+		buf = binary.LittleEndian.AppendUint32(buf, uint32(len(action.Data))) //nolint:gosec // safe, data bounded by segment size
 		if len(action.Data) > 0 {
 			buf = append(buf, action.Data...)
 		}

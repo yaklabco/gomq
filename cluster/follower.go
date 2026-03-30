@@ -90,7 +90,7 @@ func (f *Follower) handshake(conn net.Conn) error {
 
 	// Send password length + password.
 	pw := []byte(f.password)
-	if err := binary.Write(conn, binary.LittleEndian, uint8(len(pw))); err != nil {
+	if err := binary.Write(conn, binary.LittleEndian, uint8(len(pw))); err != nil { //nolint:gosec // safe, passwords are short
 		return fmt.Errorf("write password length: %w", err)
 	}
 	if _, err := conn.Write(pw); err != nil {
