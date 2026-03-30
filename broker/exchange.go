@@ -24,6 +24,15 @@ type Exchange interface {
 	Bind(dest Destination, routingKey string, args map[string]interface{}) error
 	Unbind(dest Destination, routingKey string, args map[string]interface{}) error
 	Route(msg *Message, results map[Destination]struct{})
+	Bindings() []Binding
+}
+
+// Binding represents a binding between an exchange and a destination.
+type Binding struct {
+	Source      string
+	Destination string
+	RoutingKey  string
+	Arguments   map[string]interface{}
 }
 
 // exchangeBase holds the common fields shared by all exchange implementations.

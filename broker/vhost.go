@@ -87,6 +87,32 @@ func (v *VHost) initDefaultExchanges() {
 	v.exchanges["amq.headers"] = NewHeadersExchange("amq.headers", true, false)
 }
 
+// Exchanges returns a snapshot of all exchanges in this vhost.
+func (v *VHost) Exchanges() map[string]Exchange {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	exchanges := make(map[string]Exchange, len(v.exchanges))
+	for name, ex := range v.exchanges {
+		exchanges[name] = ex
+	}
+
+	return exchanges
+}
+
+// Queues returns a snapshot of all queues in this vhost.
+func (v *VHost) Queues() map[string]*Queue {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	queues := make(map[string]*Queue, len(v.queues))
+	for name, q := range v.queues {
+		queues[name] = q
+	}
+
+	return queues
+}
+
 // --- Exchange operations ---
 
 // DeclareExchange creates a new exchange or returns an existing one if

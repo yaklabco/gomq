@@ -168,6 +168,9 @@ func (q *Queue) IsExclusive() bool { return q.exclusive }
 // IsAutoDelete reports whether the queue is deleted when all consumers disconnect.
 func (q *Queue) IsAutoDelete() bool { return q.autoDelete }
 
+// Arguments returns the queue's argument map.
+func (q *Queue) Arguments() map[string]interface{} { return q.arguments }
+
 // MarkedForDelete reports whether the queue has been marked for deletion
 // due to auto-delete semantics.
 func (q *Queue) MarkedForDelete() bool { return q.markedForDelete.Load() }
@@ -494,6 +497,15 @@ func (q *Queue) Purge(limit int) int {
 func (q *Queue) Len() uint32 {
 	return q.store.Len() + uint32(len(q.inbox)) //nolint:gosec // inbox capacity is 4096
 }
+
+// PublishCount returns the total number of messages published to this queue.
+func (q *Queue) PublishCount() uint64 { return q.publishCount.Load() }
+
+// DeliverCount returns the total number of messages delivered from this queue.
+func (q *Queue) DeliverCount() uint64 { return q.deliverCount.Load() }
+
+// AckCount returns the total number of messages acknowledged on this queue.
+func (q *Queue) AckCount() uint64 { return q.ackCount.Load() }
 
 // AddConsumer registers a consumer with the queue. It returns an error if
 // an exclusive consumer already exists or the new consumer requests exclusivity

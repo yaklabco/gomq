@@ -60,6 +60,25 @@ func (e *DirectExchange) Unbind(dest Destination, routingKey string, _ map[strin
 	return nil
 }
 
+// Bindings returns a snapshot of all bindings on this exchange.
+func (e *DirectExchange) Bindings() []Binding {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var bindings []Binding
+	for key, dests := range e.bindings {
+		for d := range dests {
+			bindings = append(bindings, Binding{
+				Source:      e.name,
+				Destination: d.Name(),
+				RoutingKey:  key,
+			})
+		}
+	}
+
+	return bindings
+}
+
 // Route adds all destinations bound to the message's routing key into results.
 func (e *DirectExchange) Route(msg *Message, results map[Destination]struct{}) {
 	e.mu.RLock()

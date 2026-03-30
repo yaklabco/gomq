@@ -44,6 +44,11 @@ func (e *DefaultExchange) Unbind(_ Destination, _ string, _ map[string]interface
 	return ErrDefaultExchangeBind
 }
 
+// Bindings returns an empty list; the default exchange has implicit bindings only.
+func (e *DefaultExchange) Bindings() []Binding {
+	return nil
+}
+
 // Route looks up the queue whose name matches msg.RoutingKey and adds
 // it to results if found.
 func (e *DefaultExchange) Route(msg *Message, results map[Destination]struct{}) {

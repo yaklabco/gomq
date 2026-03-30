@@ -8,6 +8,8 @@ const (
 	DefaultDataDir                     = "/var/lib/gomq"
 	DefaultAMQPBind                    = "127.0.0.1"
 	DefaultAMQPPort                    = 5672
+	DefaultHTTPBind                    = "127.0.0.1"
+	DefaultHTTPPort                    = 15672
 	DefaultHeartbeat                   = 300 * time.Second
 	DefaultFrameMax                    = 131072
 	DefaultChannelMax                  = 2048
@@ -27,6 +29,8 @@ type Config struct {
 	DataDir                 string
 	AMQPBind                string
 	AMQPPort                int
+	HTTPBind                string
+	HTTPPort                int
 	Heartbeat               time.Duration
 	FrameMax                uint32
 	ChannelMax              uint16
@@ -51,6 +55,8 @@ func Default() *Config {
 		DataDir:                 DefaultDataDir,
 		AMQPBind:                DefaultAMQPBind,
 		AMQPPort:                DefaultAMQPPort,
+		HTTPBind:                DefaultHTTPBind,
+		HTTPPort:                DefaultHTTPPort,
 		Heartbeat:               DefaultHeartbeat,
 		FrameMax:                DefaultFrameMax,
 		ChannelMax:              DefaultChannelMax,

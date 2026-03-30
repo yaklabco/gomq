@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -212,6 +213,105 @@ func (s *Server) notifyAllConnections(reason string, blocked bool) {
 // Blocked reports whether the server is in a resource-constrained state.
 func (s *Server) Blocked() bool {
 	return s.blocked.Load()
+}
+
+// Connections returns a snapshot of all active connections.
+func (s *Server) Connections() []*Connection {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conns := make([]*Connection, 0, len(s.conns))
+	for conn := range s.conns {
+		conns = append(conns, conn)
+	}
+
+	return conns
+}
+
+// CloseConnection finds and closes the connection with the given name.
+// Returns true if the connection was found and closed.
+func (s *Server) CloseConnection(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for conn := range s.conns {
+		if conn.Name() == name {
+			conn.Close()
+			delete(s.conns, conn)
+			return true
+		}
+	}
+
+	return false
+}
+
+// VHosts returns a snapshot of all virtual hosts.
+func (s *Server) VHosts() map[string]*VHost {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	vhosts := make(map[string]*VHost, len(s.vhosts))
+	for name, vh := range s.vhosts {
+		vhosts[name] = vh
+	}
+
+	return vhosts
+}
+
+// GetVHost returns the named virtual host and a boolean indicating
+// whether it was found.
+func (s *Server) GetVHost(name string) (*VHost, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	vh, ok := s.vhosts[name]
+	return vh, ok
+}
+
+// CreateVHost creates a new virtual host with the given name.
+// Returns an error if a vhost with that name already exists.
+func (s *Server) CreateVHost(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.vhosts[name]; ok {
+		return fmt.Errorf("vhost %q already exists", name)
+	}
+
+	vh, err := NewVHost(name, s.cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("create vhost %q: %w", name, err)
+	}
+
+	s.vhosts[name] = vh
+	return nil
+}
+
+// DeleteVHost removes a virtual host. The default "/" vhost cannot be deleted.
+func (s *Server) DeleteVHost(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if name == "/" {
+		return errors.New("cannot delete default vhost")
+	}
+
+	vh, ok := s.vhosts[name]
+	if !ok {
+		return fmt.Errorf("vhost %q: %w", name, ErrVHostNotFound)
+	}
+
+	if err := vh.Close(); err != nil {
+		return fmt.Errorf("close vhost %q: %w", name, err)
+	}
+
+	delete(s.vhosts, name)
+	return nil
+}
+
+// Users returns the user store.
+func (s *Server) Users() *auth.UserStore {
+	return s.users
 }
 
 // configureTCP sets TCP socket options on the connection.

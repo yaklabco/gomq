@@ -92,6 +92,9 @@ func NewChannel(id uint16, vhost *VHost, sendMethod sendMethodFn, sendContent se
 	}
 }
 
+// ID returns the channel number.
+func (ch *Channel) ID() uint16 { return ch.id }
+
 // HandleMethod dispatches an AMQP method to the appropriate handler.
 func (ch *Channel) HandleMethod(method amqp.Method) error {
 	ch.mu.Lock()

@@ -192,6 +192,25 @@ func (e *TopicExchange) Unbind(dest Destination, routingKey string, _ map[string
 	return nil
 }
 
+// Bindings returns a snapshot of all bindings on this exchange.
+func (e *TopicExchange) Bindings() []Binding {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var bindings []Binding
+	for _, b := range e.bindings {
+		for d := range b.dests {
+			bindings = append(bindings, Binding{
+				Source:      e.name,
+				Destination: d.Name(),
+				RoutingKey:  b.pattern.raw,
+			})
+		}
+	}
+
+	return bindings
+}
+
 // Route adds all destinations whose binding pattern matches the message's
 // routing key into results. The map deduplicates destinations that match
 // multiple patterns.

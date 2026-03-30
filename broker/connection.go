@@ -261,6 +261,49 @@ func (c *Connection) ReadLoop() error {
 	}
 }
 
+// Name returns a unique identifier for this connection.
+func (c *Connection) Name() string {
+	return c.conn.RemoteAddr().String()
+}
+
+// VHostName returns the name of the vhost this connection is using.
+// Returns an empty string if the handshake has not completed.
+func (c *Connection) VHostName() string {
+	if c.vhost == nil {
+		return ""
+	}
+	return c.vhost.Name()
+}
+
+// UserName returns the authenticated username.
+// Returns an empty string if the handshake has not completed.
+func (c *Connection) UserName() string {
+	if c.user == nil {
+		return ""
+	}
+	return c.user.Name
+}
+
+// ChannelCount returns the number of open channels.
+func (c *Connection) ChannelCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.channels)
+}
+
+// Channels returns a snapshot of all open channels.
+func (c *Connection) Channels() []*Channel {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	chs := make([]*Channel, 0, len(c.channels))
+	for _, ch := range c.channels {
+		chs = append(chs, ch)
+	}
+
+	return chs
+}
+
 // Close gracefully shuts down the connection.
 func (c *Connection) Close() {
 	if c.closed.Swap(true) {

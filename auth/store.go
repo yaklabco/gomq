@@ -81,6 +81,20 @@ func (s *UserStore) Add(user *User) error {
 	return nil
 }
 
+// Put creates or updates a user and persists the store to disk.
+func (s *UserStore) Put(user *User) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.users[user.Name] = user
+
+	if err := s.save(); err != nil {
+		return fmt.Errorf("put user: %w", err)
+	}
+
+	return nil
+}
+
 // Delete removes the named user and persists the store to disk.
 // It returns an error if the user does not exist.
 func (s *UserStore) Delete(name string) error {

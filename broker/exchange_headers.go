@@ -102,6 +102,29 @@ func (e *HeadersExchange) Route(msg *Message, results map[Destination]struct{}) 
 	}
 }
 
+// Bindings returns a snapshot of all bindings on this exchange.
+func (e *HeadersExchange) Bindings() []Binding {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	var bindings []Binding
+	for _, hb := range e.bindings {
+		for dest := range hb.dests {
+			args := make(map[string]interface{}, len(hb.args))
+			for k, v := range hb.args {
+				args[k] = v
+			}
+			bindings = append(bindings, Binding{
+				Source:      e.name,
+				Destination: dest.Name(),
+				Arguments:   args,
+			})
+		}
+	}
+
+	return bindings
+}
+
 // headersMatch checks whether the message headers satisfy the binding arguments
 // according to the x-match mode ("all" or "any").
 func headersMatch(bindArgs, msgHeaders map[string]interface{}) bool {

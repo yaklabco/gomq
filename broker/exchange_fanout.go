@@ -45,6 +45,22 @@ func (e *FanoutExchange) Unbind(dest Destination, _ string, _ map[string]interfa
 	return nil
 }
 
+// Bindings returns a snapshot of all bindings on this exchange.
+func (e *FanoutExchange) Bindings() []Binding {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	bindings := make([]Binding, 0, len(e.bindings))
+	for d := range e.bindings {
+		bindings = append(bindings, Binding{
+			Source:      e.name,
+			Destination: d.Name(),
+		})
+	}
+
+	return bindings
+}
+
 // Route adds all bound destinations into results regardless of the message's routing key.
 func (e *FanoutExchange) Route(_ *Message, results map[Destination]struct{}) {
 	e.mu.RLock()

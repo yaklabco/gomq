@@ -345,8 +345,20 @@ linters:
       min-name-length: 2
       check-type-param: false
       check-receiver: false
+      ignore-names:
+        - ok
+        - ts
+        - ex
+        - sb
+        - vh
       ignore-decls:
         - g *goldie.Goldie
+        - w http.ResponseWriter
+        - r *http.Request
+        - a *API
+        - c *broker.Connection
+        - q *broker.Queue
+        - d Destination
   exclusions:
     generated: lax
     presets:
