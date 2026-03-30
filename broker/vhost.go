@@ -499,6 +499,8 @@ func newExchange(name, typ string, durable, autoDelete bool) (Exchange, error) {
 		return NewTopicExchange(name, durable, autoDelete), nil
 	case ExchangeHeaders:
 		return NewHeadersExchange(name, durable, autoDelete), nil
+	case ExchangeConsistentHash:
+		return NewConsistentHashExchange(name, durable, autoDelete), nil
 	default:
 		return nil, fmt.Errorf("type %q: %w", typ, ErrUnknownExchangeType)
 	}
