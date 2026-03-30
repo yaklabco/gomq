@@ -76,6 +76,11 @@ type Queue struct {
 	deliveryLimit    int64            // x-delivery-limit, 0 = unlimited
 	deliveryCounters map[string]int64 // maps message segment position string to count
 
+	// Stream queue: when streamMode is true, the queue behaves as an
+	// append-only log. Ack is a no-op, consumers track their own offsets.
+	streamMode bool         // x-queue-type=stream
+	stream     *streamState // non-nil when streamMode is true
+
 	// Priority queue: when maxPriority > 0, messages are stored in per-priority
 	// stores and delivered highest-priority first.
 	maxPriority    uint8                   // 0 = normal queue, 1-255 = priority queue
@@ -175,6 +180,10 @@ func NewQueue(name string, durable, exclusive, autoDelete bool, args map[string]
 		queue.store = store
 	}
 
+	if queue.streamMode {
+		queue.stream = &streamState{}
+	}
+
 	queue.inboxWg.Add(1)
 	go queue.writeLoop()
 
@@ -258,8 +267,13 @@ func (q *Queue) PublishSync(msg *storage.Message) (bool, error) {
 	}
 
 	store := q.priorityStore(msg.Properties.Priority)
-	if _, err := store.Push(msg); err != nil {
+	sp, err := store.Push(msg)
+	if err != nil {
 		return false, fmt.Errorf("write message to store: %w", err)
+	}
+
+	if q.stream != nil {
+		q.stream.recordPosition(sp)
 	}
 
 	q.publishCount.Add(1)
@@ -380,7 +394,11 @@ func (q *Queue) publishToStore(msg *storage.Message) {
 	}
 
 	store := q.priorityStore(msg.Properties.Priority)
-	_, _ = store.Push(msg) //nolint:errcheck // non-fatal for individual batch messages
+	sp, _ := store.Push(msg) //nolint:errcheck // non-fatal for individual batch messages
+
+	if q.stream != nil {
+		q.stream.recordPosition(sp)
+	}
 }
 
 // Get shifts one message from the front of the queue (basic.get semantics).
@@ -577,7 +595,13 @@ func (q *Queue) getFuncPriority(noAck bool, fn func(env *storage.Envelope) error
 }
 
 // Ack acknowledges a message, deleting it from the store.
+// For stream queues, ack is a no-op — messages are retained.
 func (q *Queue) Ack(sp storage.SegmentPosition) error {
+	if q.streamMode {
+		q.ackCount.Add(1)
+		return nil
+	}
+
 	q.mu.Lock()
 	store := q.storeForSP(sp)
 	delete(q.ackStores, sp.String())
@@ -1048,6 +1072,12 @@ func (q *Queue) parseArguments(args map[string]interface{}) {
 		q.deliveryLimit = toInt64(v)
 		if q.deliveryLimit > 0 {
 			q.deliveryCounters = make(map[string]int64)
+		}
+	}
+
+	if v, ok := args["x-queue-type"]; ok {
+		if s, sOK := v.(string); sOK && s == "stream" {
+			q.streamMode = true
 		}
 	}
 
