@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Shovel engine for cross-broker message forwarding with AMQP source, AMQP destination, and HTTP destination
+- Shovel `Source` and `Destination` interfaces for extensible endpoint types
+- Three ack modes: `on-confirm` (default), `on-publish`, and `no-ack`
+- Exponential backoff reconnect on shovel connection failure
+- Federation links implemented as specialised shovels with `x-federation-hops` hop tracking
+- Loop prevention: messages at or above `MaxHops` are silently dropped
+- Shovel store with JSON persistence (`shovels.json`, `federation.json`) surviving broker restarts
+- HTTP management API for shovels: `GET /api/shovels`, `PUT/DELETE /api/shovels/{vhost}/{name}`
+- HTTP management API for federation: `GET /api/federation-links`, `PUT/DELETE /api/federation-links/{vhost}/{name}`
+- URI scrubbing for federation link status display (credentials replaced with `***`)
 - Leader-follower clustering with file-level replication over TCP
 - `cluster` package: `FileIndex` (CRC32 checksums), `Action` encode/decode, `ReplicationServer`, `Follower`, `Election`
 - Replication protocol with `GOMQR` header, password authentication, and action streaming

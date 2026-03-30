@@ -19,6 +19,7 @@ import (
 	"github.com/jamesainslie/gomq/config"
 	mgmt "github.com/jamesainslie/gomq/http"
 	mqttpkg "github.com/jamesainslie/gomq/mqtt"
+	"github.com/jamesainslie/gomq/shovel"
 )
 
 // httpReadHeaderTimeout is the maximum duration for reading HTTP
@@ -27,10 +28,11 @@ const httpReadHeaderTimeout = 10 * time.Second
 
 // Broker wraps a broker.Server with a clean embeddable API.
 type Broker struct {
-	server *broker.Server
-	cfg    *config.Config
-	api    *mgmt.API
-	mqtt   *mqttpkg.Broker
+	server  *broker.Server
+	cfg     *config.Config
+	api     *mgmt.API
+	mqtt    *mqttpkg.Broker
+	shovels *shovel.Store
 
 	replServer *cluster.ReplicationServer
 	follower   *cluster.Follower
@@ -159,18 +161,24 @@ func New(opts ...Option) (*Broker, error) {
 		return nil, fmt.Errorf("create broker server: %w", err)
 	}
 
-	api := mgmt.NewAPI(srv, srv.Users())
+	shovelStore, err := shovel.NewStore(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("create shovel store: %w", err)
+	}
+
+	api := mgmt.NewAPI(srv, srv.Users(), shovelStore)
 
 	// Get the default vhost for the MQTT broker bridge.
 	defaultVHost, _ := srv.GetVHost("/")
 	mqttBrk := mqttpkg.NewBroker(defaultVHost, srv.Users())
 
 	return &Broker{
-		server: srv,
-		cfg:    cfg,
-		api:    api,
-		mqtt:   mqttBrk,
-		adCh:   make(chan struct{}),
+		server:  srv,
+		cfg:     cfg,
+		api:     api,
+		mqtt:    mqttBrk,
+		shovels: shovelStore,
+		adCh:    make(chan struct{}),
 	}, nil
 }
 
@@ -220,6 +228,11 @@ func (b *Broker) Serve(ctx context.Context, ln net.Listener) error {
 		if err := b.startCluster(ctx); err != nil {
 			return fmt.Errorf("start cluster: %w", err)
 		}
+	}
+
+	// Start shovels and federation links.
+	if err := b.shovels.StartAll(ctx); err != nil {
+		log.Printf("start shovels: %v", err)
 	}
 
 	// Signal that the broker is ready. This must happen after all
@@ -353,6 +366,11 @@ func (b *Broker) WaitForAddr(ctx context.Context) net.Addr {
 
 // Close shuts down the broker, closing all connections and vhosts.
 func (b *Broker) Close() error {
+	if b.shovels != nil {
+		if err := b.shovels.StopAll(); err != nil {
+			log.Printf("stop shovels: %v", err)
+		}
+	}
 	if b.replServer != nil {
 		if err := b.replServer.Close(); err != nil {
 			log.Printf("close replication server: %v", err)

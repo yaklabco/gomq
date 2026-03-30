@@ -11,6 +11,7 @@ import (
 	"github.com/jamesainslie/gomq/broker"
 	"github.com/jamesainslie/gomq/config"
 	mgmt "github.com/jamesainslie/gomq/http"
+	"github.com/jamesainslie/gomq/shovel"
 )
 
 // newTestAPI creates a Server, UserStore, and API for testing.
@@ -32,7 +33,12 @@ func newTestAPI(t *testing.T) *mgmt.API {
 		}
 	})
 
-	return mgmt.NewAPI(srv, srv.Users())
+	shovelStore, err := shovel.NewStore(dir)
+	if err != nil {
+		t.Fatalf("new shovel store: %v", err)
+	}
+
+	return mgmt.NewAPI(srv, srv.Users(), shovelStore)
 }
 
 func doRequest(t *testing.T, ts *httptest.Server, method, path string, body string) *http.Response {
@@ -687,6 +693,199 @@ func TestAPI_MetricsAlternateRoute(t *testing.T) {
 	resp := doRequest(t, ts, http.MethodGet, "/metrics", "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	drainBody(t, resp)
+}
+
+// --- Shovels ---
+
+func TestShovelAPI(t *testing.T) {
+	t.Parallel()
+
+	api := newTestAPI(t)
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+
+	// List shovels — initially empty.
+	resp := doRequest(t, ts, http.MethodGet, "/api/shovels", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var shovels []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&shovels); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,revive // test drain
+
+	if len(shovels) != 0 {
+		t.Errorf("expected 0 shovels, got %d", len(shovels))
+	}
+
+	// Create a shovel.
+	createBody := `{
+		"src_uri": "amqp://source:5672",
+		"src_queue": "src-q",
+		"dest_uri": "amqp://dest:5672",
+		"dest_type": "amqp",
+		"exchange": "dest-ex",
+		"ack_mode": "on-publish",
+		"prefetch": 100
+	}`
+	resp = doRequest(t, ts, http.MethodPut, "/api/shovels/%2F/test-shovel", createBody)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	drainBody(t, resp)
+
+	// List shovels — should have one.
+	resp = doRequest(t, ts, http.MethodGet, "/api/shovels", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&shovels); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,revive // test drain
+
+	if len(shovels) != 1 {
+		t.Fatalf("expected 1 shovel, got %d", len(shovels))
+	}
+	if shovels[0]["name"] != "test-shovel" {
+		t.Errorf("shovel name = %v, want %q", shovels[0]["name"], "test-shovel")
+	}
+
+	// Delete the shovel.
+	resp = doRequest(t, ts, http.MethodDelete, "/api/shovels/%2F/test-shovel", "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	drainBody(t, resp)
+
+	// List again — empty.
+	resp = doRequest(t, ts, http.MethodGet, "/api/shovels", "")
+	if err := json.NewDecoder(resp.Body).Decode(&shovels); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,revive // test drain
+
+	if len(shovels) != 0 {
+		t.Errorf("expected 0 shovels after delete, got %d", len(shovels))
+	}
+}
+
+func TestShovelAPIValidation(t *testing.T) {
+	t.Parallel()
+
+	api := newTestAPI(t)
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+
+	// Missing required fields.
+	resp := doRequest(t, ts, http.MethodPut, "/api/shovels/%2F/bad", `{}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	drainBody(t, resp)
+}
+
+func TestShovelAPIDeleteNotFound(t *testing.T) {
+	t.Parallel()
+
+	api := newTestAPI(t)
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+
+	resp := doRequest(t, ts, http.MethodDelete, "/api/shovels/%2F/nonexistent", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+	drainBody(t, resp)
+}
+
+// --- Federation Links ---
+
+func TestFederationLinkAPI(t *testing.T) {
+	t.Parallel()
+
+	api := newTestAPI(t)
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+
+	// List — initially empty.
+	resp := doRequest(t, ts, http.MethodGet, "/api/federation-links", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var links []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&links); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,revive // test drain
+
+	if len(links) != 0 {
+		t.Errorf("expected 0 links, got %d", len(links))
+	}
+
+	// Create.
+	createBody := `{
+		"uri": "amqp://remote:5672",
+		"exchange": "events",
+		"max_hops": 2,
+		"prefetch": 100
+	}`
+	resp = doRequest(t, ts, http.MethodPut, "/api/federation-links/%2F/upstream1", createBody)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	drainBody(t, resp)
+
+	// List — should have one.
+	resp = doRequest(t, ts, http.MethodGet, "/api/federation-links", "")
+	if err := json.NewDecoder(resp.Body).Decode(&links); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,revive // test drain
+
+	if len(links) != 1 {
+		t.Fatalf("expected 1 link, got %d", len(links))
+	}
+	if links[0]["name"] != "upstream1" {
+		t.Errorf("link name = %v, want %q", links[0]["name"], "upstream1")
+	}
+
+	// Delete.
+	resp = doRequest(t, ts, http.MethodDelete, "/api/federation-links/%2F/upstream1", "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+	drainBody(t, resp)
+
+	// List — empty again.
+	resp = doRequest(t, ts, http.MethodGet, "/api/federation-links", "")
+	if err := json.NewDecoder(resp.Body).Decode(&links); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck,revive // test drain
+
+	if len(links) != 0 {
+		t.Errorf("expected 0 links after delete, got %d", len(links))
+	}
+}
+
+func TestFederationLinkAPIValidation(t *testing.T) {
+	t.Parallel()
+
+	api := newTestAPI(t)
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+
+	// Missing URI.
+	resp := doRequest(t, ts, http.MethodPut, "/api/federation-links/%2F/bad", `{"exchange": "ex"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
 	drainBody(t, resp)
 }
