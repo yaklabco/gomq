@@ -145,6 +145,24 @@ func (Test) Gate() error {
 	)
 }
 
+// Release groups release targets.
+type Release st.Namespace
+
+// Publish tags the release and runs goreleaser.
+func (Release) Publish() error {
+	version, err := sh.Output("svu", "next")
+	if err != nil {
+		return fmt.Errorf("determine next version: %w", err)
+	}
+	if err := sh.RunV("git", "tag", "-a", version, "-m", version); err != nil {
+		return fmt.Errorf("tag %s: %w", version, err)
+	}
+	if err := sh.RunV("git", "push", "origin", version); err != nil {
+		return fmt.Errorf("push tag %s: %w", version, err)
+	}
+	return sh.RunV("goreleaser", "release", "--clean")
+}
+
 // Fmt groups formatting targets.
 type Fmt st.Namespace
 
