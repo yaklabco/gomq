@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- HTTP management API (`/api/`) with RabbitMQ-compatible endpoints
+- Endpoints for overview, connections, channels, exchanges, queues, bindings, users, vhosts, permissions, and definitions
+- Prometheus metrics at `/api/metrics` and `/metrics` (queue depths, message rates, connection counts)
+- Health checks at `/api/healthchecks/node` and `/api/aliveness-test/{vhost}`
+- Definition export/import via `GET/POST /api/definitions`
+- HTTP Basic Auth against the user store on all management endpoints
+- `--http-port` and `--http-bind` CLI flags for the management API (default 127.0.0.1:15672)
+- `WithHTTPPort` and `WithHTTPBind` options for the embeddable broker API
+- Broker accessor methods for connections, vhosts, exchanges, queues, channels, and bindings
 - Consumer priority via `x-priority` argument on `basic.consume`
 - Single active consumer mode via `x-single-active-consumer` queue argument
 - `basic.return` for mandatory messages with no route (reply code 312)
