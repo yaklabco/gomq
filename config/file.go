@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// INI key names shared across multiple sections.
+const (
+	iniKeyBind = "bind"
+	iniKeyPort = "port"
+)
+
 // LoadFromFile reads an INI-style configuration file and returns a Config
 // with defaults overridden by the file values. The file format matches
 // LavinMQ's INI format with [main], [amqp], and [mgmt] sections.
@@ -77,6 +83,8 @@ func applyConfigValue(cfg *Config, section, key, value string) error {
 		return applyAMQPSection(cfg, key, value)
 	case "mgmt":
 		return applyMgmtSection(cfg, key, value)
+	case "mqtt":
+		return applyMQTTSection(cfg, key, value)
 	default:
 		// Unknown sections are silently ignored for forward compatibility.
 		return nil
@@ -102,9 +110,9 @@ func applyMainSection(cfg *Config, key, value string) error {
 
 func applyAMQPSection(cfg *Config, key, value string) error {
 	switch key {
-	case "bind":
+	case iniKeyBind:
 		cfg.AMQPBind = value
-	case "port":
+	case iniKeyPort:
 		port, err := strconv.Atoi(value)
 		if err != nil {
 			return fmt.Errorf("parse port %q: %w", value, err)
@@ -131,14 +139,31 @@ func applyAMQPSection(cfg *Config, key, value string) error {
 
 func applyMgmtSection(cfg *Config, key, value string) error {
 	switch key {
-	case "bind":
+	case iniKeyBind:
 		cfg.HTTPBind = value
-	case "port":
+	case iniKeyPort:
 		port, err := strconv.Atoi(value)
 		if err != nil {
 			return fmt.Errorf("parse port %q: %w", value, err)
 		}
 		cfg.HTTPPort = port
+	default:
+		// Unknown keys are silently ignored.
+	}
+
+	return nil
+}
+
+func applyMQTTSection(cfg *Config, key, value string) error {
+	switch key {
+	case iniKeyBind:
+		cfg.MQTTBind = value
+	case iniKeyPort:
+		port, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse port %q: %w", value, err)
+		}
+		cfg.MQTTPort = port
 	default:
 		// Unknown keys are silently ignored.
 	}

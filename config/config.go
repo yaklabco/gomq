@@ -9,6 +9,8 @@ const (
 	DefaultAMQPBind                    = "127.0.0.1"
 	DefaultAMQPPort                    = 5672
 	DefaultAMQPSPort                   = -1 // disabled by default, 5671 when TLS is configured
+	DefaultMQTTBind                    = "127.0.0.1"
+	DefaultMQTTPort                    = 1883
 	DefaultHTTPBind                    = "127.0.0.1"
 	DefaultHTTPPort                    = 15672
 	DefaultHeartbeat                   = 300 * time.Second
@@ -31,6 +33,8 @@ type Config struct {
 	AMQPBind                string
 	AMQPPort                int
 	AMQPSPort               int // AMQPS (TLS) port; -1 to disable
+	MQTTBind                string
+	MQTTPort                int // MQTT port; -1 to disable
 	TLSCertFile             string
 	TLSKeyFile              string
 	HTTPBind                string
@@ -60,6 +64,8 @@ func Default() *Config {
 		AMQPBind:                DefaultAMQPBind,
 		AMQPPort:                DefaultAMQPPort,
 		AMQPSPort:               DefaultAMQPSPort,
+		MQTTBind:                DefaultMQTTBind,
+		MQTTPort:                DefaultMQTTPort,
 		HTTPBind:                DefaultHTTPBind,
 		HTTPPort:                DefaultHTTPPort,
 		Heartbeat:               DefaultHeartbeat,

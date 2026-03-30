@@ -28,6 +28,8 @@ func main() {
 	flag.StringVar(&cfg.TLSCertFile, "tls-cert", cfg.TLSCertFile, "TLS certificate file path")
 	flag.StringVar(&cfg.TLSKeyFile, "tls-key", cfg.TLSKeyFile, "TLS private key file path")
 	flag.IntVar(&cfg.AMQPSPort, "amqps-port", cfg.AMQPSPort, "AMQPS (TLS) listen port (-1 to disable)")
+	flag.StringVar(&cfg.MQTTBind, "mqtt-bind", cfg.MQTTBind, "MQTT bind address")
+	flag.IntVar(&cfg.MQTTPort, "mqtt-port", cfg.MQTTPort, "MQTT listen port (-1 to disable)")
 	flag.Parse()
 
 	// Load config file first, then CLI flags override.
@@ -76,6 +78,12 @@ func applyFlag(cfg *config.Config, flg *flag.Flag) {
 		if port, err := strconv.Atoi(flg.Value.String()); err == nil {
 			cfg.AMQPSPort = port
 		}
+	case "mqtt-bind":
+		cfg.MQTTBind = flg.Value.String()
+	case "mqtt-port":
+		if port, err := strconv.Atoi(flg.Value.String()); err == nil {
+			cfg.MQTTPort = port
+		}
 	}
 }
 
@@ -93,6 +101,9 @@ func run(cfg *config.Config) error {
 		opts = append(opts, gomq.WithAMQPSPort(cfg.AMQPSPort))
 	}
 
+	opts = append(opts, gomq.WithMQTTPort(cfg.MQTTPort))
+	opts = append(opts, gomq.WithMQTTBind(cfg.MQTTBind))
+
 	brk, err := gomq.New(opts...)
 	if err != nil {
 		return fmt.Errorf("create broker: %w", err)
@@ -101,8 +112,8 @@ func run(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Fprintf(os.Stderr, "gomq starting (data_dir=%s, amqp=%s:%d, http=%s:%d)\n",
-		cfg.DataDir, cfg.AMQPBind, cfg.AMQPPort, cfg.HTTPBind, cfg.HTTPPort)
+	fmt.Fprintf(os.Stderr, "gomq starting (data_dir=%s, amqp=%s:%d, http=%s:%d, mqtt=%s:%d)\n",
+		cfg.DataDir, cfg.AMQPBind, cfg.AMQPPort, cfg.HTTPBind, cfg.HTTPPort, cfg.MQTTBind, cfg.MQTTPort)
 
 	if err := brk.ListenAndServe(ctx); err != nil {
 		return fmt.Errorf("serve: %w", err)
