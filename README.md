@@ -282,6 +282,22 @@ curl http://localhost:15672/api/healthchecks/node
 curl -u guest:guest http://localhost:15672/api/definitions > backup.json
 ```
 
+## Performance
+
+Benchmarked on a **32-core AMD EPYC-Milan** (251 GB RAM, Linux 6.17) using `gomqperf` with 16-byte messages, auto-ack, and prefetch 1000. All tests run over TCP loopback (not embedded).
+
+| Scenario | GoMQ | Notes |
+|----------|------|-------|
+| 1 publisher, 1 consumer | **30,900 msg/s** | 500K messages, p99 latency 3.1s |
+| 4 publishers, 4 consumers | **85,600 msg/s** | 1M messages, p99 latency 718ms |
+| 1 publisher, 1 consumer (macOS, embedded) | **47,600 msg/s** | 500K messages, p99 latency 72ms |
+| 4 publishers, 4 consumers (macOS, embedded) | **73,600 msg/s** | 1M messages |
+
+For context, RabbitMQ 4.1 on the same hardware achieves ~35,000 msg/s (1P/1C) and ~90,000 msg/s (4P/4C). LavinMQ (Crystal) reports 800,000 msg/s on a 2-vCPU ARM instance — GoMQ's architecture is the same but Go's goroutine scheduler has higher overhead than Crystal's cooperative fibers. Performance optimization is ongoing.
+
+> **Test environment:** AMD EPYC-Milan, 32 cores, 251 GB RAM, Linux 6.17.0, ext4, loopback TCP.
+> Benchmarks are end-to-end (publish → route → persist → deliver → consume) with latency measured via embedded nanosecond timestamps.
+
 ## Benchmarking
 
 GoMQ includes `gomqperf`, a built-in load testing tool:

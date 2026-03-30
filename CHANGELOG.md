@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Performance benchmarks in README (32-core AMD EPYC-Milan: 30.9K msg/s 1P/1C, 85.6K msg/s 4P/4C)
+
 ### Fixed
 
 - Publisher disconnects under sustained high-throughput load due to blocking inbox send stalling heartbeat processing
