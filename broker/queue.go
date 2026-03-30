@@ -525,101 +525,71 @@ func (q *Queue) storeForSP(sp storage.SegmentPosition) *storage.MessageStore {
 // If fn returns an error, the message is not consumed and remains available.
 // Returns false when the queue is empty.
 func (q *Queue) GetFunc(noAck bool, fn func(env *storage.Envelope) error) (bool, error) {
+	// Shift a message under the lock, then deliver OUTSIDE the lock.
+	// Holding q.mu during socket writes causes deadlocks when the client
+	// read loop needs q.mu for nack/reject processing.
+	env, ok := q.shiftNext()
+	if !ok {
+		return false, nil
+	}
+
+	if err := fn(env); err != nil {
+		// Delivery failed — put message back.
+		q.mu.Lock()
+		q.requeued = append(q.requeued, env.SegmentPosition)
+		q.mu.Unlock()
+		return false, err
+	}
+
+	q.deliverCount.Add(1)
+	if noAck {
+		q.mu.Lock()
+		store := q.storeForSP(env.SegmentPosition)
+		q.mu.Unlock()
+		if delErr := store.Delete(env.SegmentPosition); delErr == nil {
+			q.ackCount.Add(1)
+		}
+	}
+	return true, nil
+}
+
+// shiftNext pops the next available message (requeued first, then store),
+// skipping expired messages. The caller receives a fully materialized
+// envelope with a copied body — safe to use after the lock is released.
+func (q *Queue) shiftNext() (*storage.Envelope, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	for {
-		// Serve requeued messages first.
 		if env, ok := q.shiftRequeued(); ok {
 			if q.isExpired(env.Message) {
-				_ = q.deadLetterOrDelete(env.SegmentPosition, "expired") //nolint:errcheck // best-effort expiry cleanup
+				_ = q.deadLetterOrDelete(env.SegmentPosition, "expired") //nolint:errcheck // best-effort
 				continue
 			}
-			if err := fn(env); err != nil {
-				// Put it back on requeue if delivery fails.
-				q.requeued = append(q.requeued, env.SegmentPosition)
-				return false, err
-			}
-			q.deliverCount.Add(1)
-			if noAck {
-				store := q.storeForSP(env.SegmentPosition)
-				if delErr := store.Delete(env.SegmentPosition); delErr == nil {
-					q.ackCount.Add(1)
-				}
-			}
-			return true, nil
+			return env, true
 		}
 
-		// For priority queues, use Shift-based path since we iterate across
-		// multiple stores.
 		if q.maxPriority > 0 {
-			return q.getFuncPriority(noAck, fn)
-		}
-
-		// Try the normal store path. ShiftFunc uses zero-copy reads under the
-		// store lock, so we cannot loop inside it -- we fall through to Shift
-		// if the message is expired.
-		var sp storage.SegmentPosition
-		var expired bool
-		ok, err := q.store.ShiftFunc(func(env *storage.Envelope) error {
-			sp = env.SegmentPosition
+			env, ok := q.shiftPriority()
+			if !ok {
+				return nil, false
+			}
 			if q.isExpired(env.Message) {
-				expired = true
-				return nil // accept the shift, we'll dead-letter outside
+				_ = q.deadLetterOrDelete(env.SegmentPosition, "expired") //nolint:errcheck // best-effort
+				continue
 			}
-			return fn(env)
-		})
+			return env, true
+		}
+
+		env, ok := q.store.Shift()
 		if !ok {
-			return false, err
+			return nil, false
 		}
-		if err != nil {
-			return false, err
-		}
-		if expired {
-			_ = q.deadLetterOrDelete(sp, "expired") //nolint:errcheck // best-effort expiry cleanup
-			continue
-		}
-
-		q.deliverCount.Add(1)
-
-		if noAck {
-			if delErr := q.store.Delete(sp); delErr == nil {
-				q.ackCount.Add(1)
-			}
-		}
-
-		return true, nil
-	}
-}
-
-// getFuncPriority handles GetFunc for priority queues by shifting from the
-// highest-priority non-empty store. Must be called with q.mu held.
-func (q *Queue) getFuncPriority(noAck bool, fn func(env *storage.Envelope) error) (bool, error) {
-	for {
-		env, ok := q.shiftPriority()
-		if !ok {
-			return false, nil
-		}
-
 		if q.isExpired(env.Message) {
-			store := q.storeForSP(env.SegmentPosition)
-			_ = q.deadLetterOrDeleteStore(store, env.SegmentPosition, "expired") //nolint:errcheck // best-effort
+			_ = q.deadLetterOrDelete(env.SegmentPosition, "expired") //nolint:errcheck // best-effort
 			continue
 		}
-
-		if err := fn(env); err != nil {
-			q.requeued = append(q.requeued, env.SegmentPosition)
-			return false, err
-		}
-
-		q.deliverCount.Add(1)
-		if noAck {
-			store := q.storeForSP(env.SegmentPosition)
-			if delErr := store.Delete(env.SegmentPosition); delErr == nil {
-				q.ackCount.Add(1)
-			}
-		}
-		return true, nil
+		return env, true
 	}
 }
 
@@ -708,7 +678,10 @@ func (q *Queue) Purge(limit int) int {
 // Len returns the number of messages in the queue, including those
 // buffered in the async inbox that have not yet been written to the store.
 func (q *Queue) Len() uint32 {
-	return q.totalLen() + uint32(len(q.inbox)) //nolint:gosec // inbox capacity is 4096
+	q.mu.RLock()
+	nRequeued := uint32(len(q.requeued)) //nolint:gosec // requeued slice is small
+	q.mu.RUnlock()
+	return q.totalLen() + uint32(len(q.inbox)) + nRequeued //nolint:gosec // inbox capacity is 4096
 }
 
 // PublishCount returns the total number of messages published to this queue.

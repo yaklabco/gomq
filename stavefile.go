@@ -126,6 +126,7 @@ func (Test) Go() error {
 		"--",
 		"-v", "-race", "-cover", "./...",
 		"-count", "1",
+		"-timeout", "120s",
 		"-coverprofile=coverage.out",
 		"-covermode=atomic",
 	)
