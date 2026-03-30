@@ -2,8 +2,12 @@ package gomq_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -454,4 +458,171 @@ func TestIntegration_QueuePurge(t *testing.T) {
 	if ok {
 		t.Error("expected empty queue after purge")
 	}
+}
+
+// TestIntegration_ManagementAPI starts an embedded broker with both AMQP and
+// HTTP enabled, declares a queue via AMQP, and verifies it is visible through
+// the management API.
+func TestIntegration_ManagementAPI(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	brk, err := gomq.New(
+		gomq.WithDataDir(dir),
+		gomq.WithHTTPPort(0), // random port
+	)
+	if err != nil {
+		t.Fatalf("gomq.New: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- brk.Serve(ctx, ln)
+	}()
+
+	addr := brk.WaitForAddr(ctx)
+	if addr == nil {
+		cancel()
+		t.Fatal("broker did not start")
+	}
+
+	t.Cleanup(func() {
+		if closeErr := brk.Close(); closeErr != nil {
+			t.Errorf("broker close: %v", closeErr)
+		}
+		cancel()
+		if srvErr := <-serveErr; srvErr != nil {
+			t.Errorf("broker serve: %v", srvErr)
+		}
+	})
+
+	// Wait for HTTP API to be ready.
+	var httpAddr net.Addr
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		httpAddr = brk.HTTPAddr()
+		if httpAddr != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if httpAddr == nil {
+		t.Fatal("HTTP API did not start")
+	}
+
+	httpTCP, ok := httpAddr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("HTTPAddr() type = %T, want *net.TCPAddr", httpAddr)
+	}
+	httpBase := fmt.Sprintf("http://127.0.0.1:%d", httpTCP.Port)
+
+	// --- 1. Verify overview endpoint works.
+	overviewResp := httpGet(t, httpBase+"/api/overview")
+	if overviewResp["gomq_version"] == nil {
+		t.Error("overview missing gomq_version")
+	}
+
+	// --- 2. Declare a queue via AMQP.
+	amqpTCP, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("Addr() type = %T, want *net.TCPAddr", addr)
+	}
+	amqpAddr := fmt.Sprintf("amqp://guest:guest@127.0.0.1:%d/", amqpTCP.Port)
+	conn, err := amqp.Dial(amqpAddr)
+	if err != nil {
+		t.Fatalf("amqp.Dial: %v", err)
+	}
+	defer conn.Close() //nolint:errcheck // test cleanup
+
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("open channel: %v", err)
+	}
+
+	_, err = ch.QueueDeclare("mgmt-test-q", false, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("declare queue: %v", err)
+	}
+
+	// --- 3. Verify queue is visible via management API.
+	queueResp := httpGet(t, httpBase+"/api/queues/%2F/mgmt-test-q")
+	if queueResp["name"] != "mgmt-test-q" {
+		t.Errorf("queue name = %v, want mgmt-test-q", queueResp["name"])
+	}
+
+	// --- 4. Verify metrics endpoint returns prometheus format.
+	metricsBody := httpGetRaw(t, httpBase+"/api/metrics")
+	if !strings.Contains(metricsBody, "gomq_connections") {
+		t.Error("metrics missing gomq_connections")
+	}
+
+	// --- 5. Verify health check.
+	healthResp := httpGet(t, httpBase+"/api/healthchecks/node")
+	if healthResp["status"] != "ok" {
+		t.Errorf("health status = %v, want ok", healthResp["status"])
+	}
+}
+
+// httpGet makes an authenticated GET request and returns the parsed JSON body.
+func httpGet(t *testing.T, rawURL string) map[string]interface{} {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil) //nolint:noctx // test helper
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.SetBasicAuth("guest", "guest")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // test helper
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body) //nolint:errcheck // diagnostic only
+		t.Fatalf("GET %s: status %d, body: %s", rawURL, resp.StatusCode, body)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode json from %s: %v", rawURL, err)
+	}
+
+	return result
+}
+
+// httpGetRaw makes an authenticated GET request and returns the raw body.
+func httpGetRaw(t *testing.T, rawURL string) string {
+	t.Helper()
+
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil) //nolint:noctx // test helper
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.SetBasicAuth("guest", "guest")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // test helper
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: status %d", rawURL, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	return string(body)
 }
