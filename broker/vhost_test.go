@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jamesainslie/gomq/storage"
+	"github.com/yaklabco/gomq/storage"
 )
 
 func newTestVHost(t *testing.T) *VHost {

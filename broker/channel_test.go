@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/amqp"
+	"github.com/yaklabco/gomq/amqp"
 )
 
 // methodCollector captures methods sent by the channel for assertions.

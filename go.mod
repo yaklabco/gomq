@@ -1,8 +1,12 @@
-module github.com/jamesainslie/gomq
+module github.com/yaklabco/gomq
 
 go 1.26.1
 
-require github.com/yaklabco/stave v0.14.3
+require (
+	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/yaklabco/stave v0.14.3
+	golang.org/x/sys v0.42.0
+)
 
 require (
 	charm.land/lipgloss/v2 v2.0.2 // indirect
@@ -25,13 +29,11 @@ require (
 	github.com/muesli/mango-cobra v1.3.0 // indirect
 	github.com/muesli/mango-pflag v0.2.0 // indirect
 	github.com/muesli/roff v0.1.0 // indirect
-	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 )

@@ -22,7 +22,7 @@
 
 **Step 1: Initialize Go module**
 
-Run: `cd /Volumes/Code/gomq && go mod init github.com/jamesainslie/gomq`
+Run: `cd /Volumes/Code/gomq && go mod init github.com/yaklabco/gomq`
 Expected: `go.mod` created
 
 **Step 2: Write config test**
@@ -147,7 +147,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jamesainslie/gomq/config"
+	"github.com/yaklabco/gomq/config"
 )
 
 func main() {

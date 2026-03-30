@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamesainslie/gomq/broker"
-	"github.com/jamesainslie/gomq/cluster"
-	"github.com/jamesainslie/gomq/config"
-	mgmt "github.com/jamesainslie/gomq/http"
-	mqttpkg "github.com/jamesainslie/gomq/mqtt"
-	"github.com/jamesainslie/gomq/shovel"
+	"github.com/yaklabco/gomq/broker"
+	"github.com/yaklabco/gomq/cluster"
+	"github.com/yaklabco/gomq/config"
+	mgmt "github.com/yaklabco/gomq/http"
+	mqttpkg "github.com/yaklabco/gomq/mqtt"
+	"github.com/yaklabco/gomq/shovel"
 )
 
 // httpReadHeaderTimeout is the maximum duration for reading HTTP

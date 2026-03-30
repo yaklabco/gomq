@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/jamesainslie/gomq"
+	"github.com/yaklabco/gomq"
 )
 
 func TestEmbeddedBroker(t *testing.T) {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Moved repository to `yaklabco/gomq` organization
+- Go module path changed from `github.com/jamesainslie/gomq` to `github.com/yaklabco/gomq`
+- Docker image moved to `ghcr.io/yaklabco/gomq`
+
 ### Added
 
 - Performance benchmarks in README (32-core AMD EPYC-Milan: 30.9K msg/s 1P/1C, 85.6K msg/s 4P/4C)
@@ -124,6 +130,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standalone `gomq` binary with signal handling
 - `gomqperf` performance testing tool
 
-[Unreleased]: https://github.com/jamesainslie/gomq/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/jamesainslie/gomq/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/jamesainslie/gomq/releases/tag/v0.1.0
+[Unreleased]: https://github.com/yaklabco/gomq/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yaklabco/gomq/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/yaklabco/gomq/releases/tag/v0.1.0

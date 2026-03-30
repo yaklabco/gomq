@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/jamesainslie/gomq/broker"
+	"github.com/yaklabco/gomq/broker"
 )
 
 // --- Policies ---

@@ -66,7 +66,7 @@ GoMQ implements the same mmap-based storage architecture as LavinMQ, ported from
 
 ```bash
 # Install
-go install github.com/jamesainslie/gomq/cmd/gomq@latest
+go install github.com/yaklabco/gomq/cmd/gomq@latest
 
 # Run with defaults (AMQP on :5672, HTTP API on :15672)
 gomq --data-dir /tmp/gomq-data
@@ -83,7 +83,7 @@ gomq \
 ### Docker
 
 ```bash
-docker run -p 5672:5672 -p 15672:15672 ghcr.io/jamesainslie/gomq:latest
+docker run -p 5672:5672 -p 15672:15672 ghcr.io/yaklabco/gomq:latest
 ```
 
 ### Embeddable Library
@@ -97,7 +97,7 @@ import (
     "os/signal"
     "syscall"
 
-    "github.com/jamesainslie/gomq"
+    "github.com/yaklabco/gomq"
 )
 
 func main() {
@@ -303,7 +303,7 @@ For context, RabbitMQ 4.1 on the same hardware achieves ~35,000 msg/s (1P/1C) an
 GoMQ includes `gomqperf`, a built-in load testing tool:
 
 ```bash
-go install github.com/jamesainslie/gomq/cmd/gomqperf@latest
+go install github.com/yaklabco/gomq/cmd/gomqperf@latest
 
 # Basic throughput test
 gomqperf -uri amqp://guest:guest@localhost:5672/ \

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jamesainslie/gomq/amqp"
-	"github.com/jamesainslie/gomq/config"
+	"github.com/yaklabco/gomq/amqp"
+	"github.com/yaklabco/gomq/config"
 )
 
 func TestServer_StartAndShutdown(t *testing.T) {
