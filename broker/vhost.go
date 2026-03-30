@@ -25,6 +25,8 @@ var (
 	ErrQueueHasConsumers   = errors.New("queue has consumers")
 	ErrQueueNotEmpty       = errors.New("queue is not empty")
 	ErrVHostClosed         = errors.New("vhost is closed")
+	ErrMaxQueuesReached    = errors.New("max queues limit reached")
+	ErrMaxConnsReached     = errors.New("max connections limit reached")
 )
 
 // isDefaultExchange reports whether the given name belongs to a
@@ -47,6 +49,13 @@ type VHost struct {
 	queues    map[string]*Queue
 	dataDir   string
 	closed    bool
+
+	// Resource limits; 0 means unlimited.
+	maxConnections int
+	maxQueues      int
+
+	// Policies applies pattern-matched rules to queues and exchanges.
+	Policies *PolicyStore
 }
 
 // NewVHost creates a virtual host, initialising its data directory and
@@ -67,6 +76,7 @@ func NewVHost(name string, dataDir string) (*VHost, error) {
 		dataDir:   vhostDir,
 	}
 
+	vh.Policies = NewPolicyStore(vh)
 	vh.initDefaultExchanges()
 
 	return vh, nil
@@ -74,6 +84,44 @@ func NewVHost(name string, dataDir string) (*VHost, error) {
 
 // Name returns the virtual host name.
 func (v *VHost) Name() string { return v.name }
+
+// Limits returns the max connections and max queues for this vhost.
+// Zero means unlimited.
+func (v *VHost) Limits() (int, int) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.maxConnections, v.maxQueues
+}
+
+// SetLimits sets the connection and queue limits. Zero means unlimited.
+func (v *VHost) SetLimits(maxConnections, maxQueues int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.maxConnections = maxConnections
+	v.maxQueues = maxQueues
+}
+
+// QueueCount returns the current number of queues in the vhost.
+func (v *VHost) QueueCount() int {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return len(v.queues)
+}
+
+// CheckConnectionLimit reports whether a new connection is allowed given
+// the current connection count. Returns ErrMaxConnsReached if the limit
+// would be exceeded. connCount is the number of existing connections to
+// this vhost.
+func (v *VHost) CheckConnectionLimit(connCount int) error {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	if v.maxConnections > 0 && connCount >= v.maxConnections {
+		return fmt.Errorf("vhost %q: %w", v.name, ErrMaxConnsReached)
+	}
+
+	return nil
+}
 
 // DataDir returns the on-disk path for this virtual host's data.
 func (v *VHost) DataDir() string { return v.dataDir }
@@ -196,6 +244,10 @@ func (v *VHost) DeclareQueue(name string, durable, exclusive, autoDelete bool, a
 		}
 
 		return existing, nil
+	}
+
+	if v.maxQueues > 0 && len(v.queues) >= v.maxQueues {
+		return nil, fmt.Errorf("vhost %q: %w", v.name, ErrMaxQueuesReached)
 	}
 
 	queue, err := NewQueue(name, durable, exclusive, autoDelete, args, v.dataDir)

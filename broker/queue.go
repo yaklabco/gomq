@@ -95,6 +95,9 @@ type Queue struct {
 	expiresMs      int64  // 0 = no queue expiry (x-expires), milliseconds
 	expireTimer    *time.Timer
 
+	// Policy-applied arguments (separate from user-declared arguments).
+	effectiveArgs map[string]interface{}
+
 	// Stats.
 	publishCount atomic.Uint64
 	deliverCount atomic.Uint64
@@ -206,6 +209,32 @@ func (q *Queue) IsAutoDelete() bool { return q.autoDelete }
 
 // Arguments returns the queue's argument map.
 func (q *Queue) Arguments() map[string]interface{} { return q.arguments }
+
+// EffectiveArgs returns the arguments applied by policies. These are
+// separate from the user-declared arguments and take effect alongside them.
+func (q *Queue) EffectiveArgs() map[string]interface{} {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	if q.effectiveArgs == nil {
+		return nil
+	}
+
+	// Return a copy to prevent mutation.
+	result := make(map[string]interface{}, len(q.effectiveArgs))
+	for k, v := range q.effectiveArgs {
+		result[k] = v
+	}
+	return result
+}
+
+// SetEffectiveArgs updates the policy-applied arguments on the queue.
+// A nil map clears the effective arguments.
+func (q *Queue) SetEffectiveArgs(args map[string]interface{}) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.effectiveArgs = args
+}
 
 // MarkedForDelete reports whether the queue has been marked for deletion
 // due to auto-delete semantics.

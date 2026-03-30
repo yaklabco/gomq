@@ -89,6 +89,19 @@ func (a *API) registerRoutes() {
 	a.route("GET", "/api/permissions/{vhost}/{user}", a.handleGetPermissions)
 	a.route("PUT", "/api/permissions/{vhost}/{user}", a.handlePutPermissions)
 
+	// Policies.
+	a.route("GET", "/api/policies", a.handleListAllPolicies)
+	a.route("GET", "/api/policies/{vhost}", a.handleListPolicies)
+	a.route("GET", "/api/policies/{vhost}/{name}", a.handleGetPolicy)
+	a.route("PUT", "/api/policies/{vhost}/{name}", a.handlePutPolicy)
+	a.route("DELETE", "/api/policies/{vhost}/{name}", a.handleDeletePolicy)
+
+	// Vhost limits.
+	a.route("GET", "/api/vhost-limits", a.handleListAllVhostLimits)
+	a.route("GET", "/api/vhost-limits/{vhost}", a.handleGetVhostLimits)
+	a.route("PUT", "/api/vhost-limits/{vhost}", a.handlePutVhostLimits)
+	a.route("DELETE", "/api/vhost-limits/{vhost}", a.handleDeleteVhostLimits)
+
 	// Definitions.
 	a.route("GET", "/api/definitions", a.handleGetDefinitions)
 	a.route("POST", "/api/definitions", a.handlePostDefinitions)
