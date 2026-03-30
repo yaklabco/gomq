@@ -9,6 +9,7 @@ import (
 
 	"github.com/jamesainslie/gomq/auth"
 	"github.com/jamesainslie/gomq/broker"
+	"github.com/jamesainslie/gomq/shovel"
 )
 
 // Version is the broker version reported by the management API.
@@ -16,17 +17,19 @@ const Version = "0.1.0"
 
 // API provides the HTTP management API endpoints.
 type API struct {
-	server *broker.Server
-	users  *auth.UserStore
-	router *router
+	server  *broker.Server
+	users   *auth.UserStore
+	shovels *shovel.Store
+	router  *router
 }
 
 // NewAPI creates a management API backed by the given server and user store.
-func NewAPI(server *broker.Server, users *auth.UserStore) *API {
+func NewAPI(server *broker.Server, users *auth.UserStore, shovels *shovel.Store) *API {
 	a := &API{
-		server: server,
-		users:  users,
-		router: newRouter(),
+		server:  server,
+		users:   users,
+		shovels: shovels,
+		router:  newRouter(),
 	}
 
 	a.registerRoutes()
@@ -109,6 +112,16 @@ func (a *API) registerRoutes() {
 	// Health.
 	a.route("GET", "/api/aliveness-test/{vhost}", a.handleAlivenessTest)
 	a.route("GET", "/api/healthchecks/node", a.handleHealthCheck)
+
+	// Shovels.
+	a.route("GET", "/api/shovels", a.handleListShovels)
+	a.route("PUT", "/api/shovels/{vhost}/{name}", a.handlePutShovel)
+	a.route("DELETE", "/api/shovels/{vhost}/{name}", a.handleDeleteShovel)
+
+	// Federation.
+	a.route("GET", "/api/federation-links", a.handleListFederationLinks)
+	a.route("PUT", "/api/federation-links/{vhost}/{name}", a.handlePutFederationLink)
+	a.route("DELETE", "/api/federation-links/{vhost}/{name}", a.handleDeleteFederationLink)
 
 	// Metrics.
 	a.route("GET", "/api/metrics", a.handleMetrics)
