@@ -509,7 +509,7 @@ func queueJSON(vhost string, q *broker.Queue) map[string]interface{} {
 func (a *API) handleListAllBindings(w http.ResponseWriter, _ *http.Request) {
 	vhosts := a.server.VHosts()
 
-	var result []map[string]interface{}
+	result := make([]map[string]interface{}, 0) //nolint:prealloc // size unknown until iteration
 	for vhostName, vh := range vhosts {
 		result = append(result, collectBindings(vhostName, vh)...)
 	}
@@ -837,7 +837,7 @@ func (a *API) handleGetDefinitions(w http.ResponseWriter, _ *http.Request) {
 	// Build exchanges, queues, and bindings.
 	var exchanges []map[string]interface{}
 	var queues []map[string]interface{}
-	var bindings []map[string]interface{}
+	bindings := make([]map[string]interface{}, 0) //nolint:prealloc // size unknown until iteration
 
 	for vhostName, vh := range vhosts {
 		for _, ex := range vh.Exchanges() {
