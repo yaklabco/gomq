@@ -154,8 +154,6 @@ func (b *Broker) ListenAndServe(ctx context.Context) error {
 // this method is called. Also starts the HTTP management API and AMQPS
 // listener if configured.
 func (b *Broker) Serve(ctx context.Context, ln net.Listener) error {
-	b.setAddr(ln.Addr())
-
 	// Start HTTP management API if port is not -1.
 	if b.cfg.HTTPPort >= 0 {
 		if err := b.startHTTP(ctx); err != nil {
@@ -176,6 +174,11 @@ func (b *Broker) Serve(ctx context.Context, ln net.Listener) error {
 			return fmt.Errorf("start mqtt: %w", err)
 		}
 	}
+
+	// Signal that the broker is ready. This must happen after all
+	// auxiliary listeners (HTTP, AMQPS, MQTT) are started so that
+	// callers waiting on WaitForAddr can safely read MQTTAddr, etc.
+	b.setAddr(ln.Addr())
 
 	return b.server.Serve(ctx, ln)
 }

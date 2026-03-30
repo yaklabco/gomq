@@ -30,6 +30,7 @@ func TestTLS_PublishConsume(t *testing.T) {
 	brk, err := gomq.New(
 		gomq.WithDataDir(dir),
 		gomq.WithHTTPPort(-1),
+		gomq.WithMQTTPort(-1),
 		gomq.WithTLS(certFile, keyFile),
 		gomq.WithAMQPSPort(0), // random port
 	)

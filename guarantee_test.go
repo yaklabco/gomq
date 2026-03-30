@@ -19,7 +19,7 @@ const guaranteeTimeout = 30 * time.Second
 func startBrokerWithDir(t *testing.T, dir string) (*gomq.Broker, func()) {
 	t.Helper()
 
-	brk, err := gomq.New(gomq.WithDataDir(dir), gomq.WithHTTPPort(-1))
+	brk, err := gomq.New(gomq.WithDataDir(dir), gomq.WithHTTPPort(-1), gomq.WithMQTTPort(-1))
 	if err != nil {
 		t.Fatalf("gomq.New: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jamesainslie/gomq"
+	mqttpkg "github.com/jamesainslie/gomq/mqtt"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -25,7 +26,7 @@ func startTestBroker(t *testing.T) *gomq.Broker {
 
 	dir := t.TempDir()
 
-	brk, err := gomq.New(gomq.WithDataDir(dir), gomq.WithHTTPPort(-1))
+	brk, err := gomq.New(gomq.WithDataDir(dir), gomq.WithHTTPPort(-1), gomq.WithMQTTPort(-1))
 	if err != nil {
 		t.Fatalf("gomq.New() error: %v", err)
 	}
@@ -471,6 +472,7 @@ func TestIntegration_ManagementAPI(t *testing.T) {
 	brk, err := gomq.New(
 		gomq.WithDataDir(dir),
 		gomq.WithHTTPPort(0), // random port
+		gomq.WithMQTTPort(-1),
 	)
 	if err != nil {
 		t.Fatalf("gomq.New: %v", err)
@@ -625,4 +627,200 @@ func httpGetRaw(t *testing.T, rawURL string) string {
 	}
 
 	return string(body)
+}
+
+// startTestBrokerWithMQTT creates an embedded broker with both AMQP and MQTT
+// on random ports.
+func startTestBrokerWithMQTT(t *testing.T) *gomq.Broker {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	brk, err := gomq.New(
+		gomq.WithDataDir(dir),
+		gomq.WithHTTPPort(-1),
+		gomq.WithMQTTPort(0), // random port
+	)
+	if err != nil {
+		t.Fatalf("gomq.New() error: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- brk.Serve(ctx, ln)
+	}()
+
+	// Wait for the broker to be ready.
+	addr := brk.WaitForAddr(ctx)
+	if addr == nil {
+		cancel()
+		t.Fatal("broker did not start")
+	}
+
+	t.Cleanup(func() {
+		if closeErr := brk.Close(); closeErr != nil {
+			t.Errorf("broker close: %v", closeErr)
+		}
+		cancel()
+		if srvErr := <-serveErr; srvErr != nil {
+			t.Errorf("broker serve: %v", srvErr)
+		}
+	})
+
+	return brk
+}
+
+// TestIntegration_MQTT tests the MQTT protocol end-to-end:
+// 1. MQTT client subscribes to a topic.
+// 2. AMQP client publishes to amq.topic with matching routing key.
+// 3. MQTT client receives the message (cross-protocol delivery).
+func TestIntegration_MQTT(t *testing.T) {
+	t.Parallel()
+
+	brk := startTestBrokerWithMQTT(t)
+
+	mqttAddr := brk.MQTTAddr()
+	if mqttAddr == nil {
+		t.Fatal("MQTT listener not started")
+	}
+
+	// --- 1. Connect MQTT subscriber.
+	mqttConn, err := net.Dial("tcp", mqttAddr.String())
+	if err != nil {
+		t.Fatalf("mqtt dial: %v", err)
+	}
+	t.Cleanup(func() { _ = mqttConn.Close() })
+
+	mqttConnectPkt := &mqttpkg.ConnectPacket{
+		ProtocolName:  "MQTT",
+		ProtocolLevel: 4,
+		CleanSession:  true,
+		KeepAlive:     60,
+		ClientID:      "integration-sub",
+		Username:      "guest",
+		Password:      []byte("guest"),
+	}
+	if err := mqttConnectPkt.Encode(mqttConn); err != nil {
+		t.Fatalf("encode CONNECT: %v", err)
+	}
+
+	connackPkt, err := mqttpkg.ReadPacket(mqttConn)
+	if err != nil {
+		t.Fatalf("read CONNACK: %v", err)
+	}
+	connack, ok := connackPkt.(*mqttpkg.ConnackPacket)
+	if !ok || connack.ReturnCode != mqttpkg.ConnackAccepted {
+		t.Fatalf("CONNECT failed: %v", connackPkt)
+	}
+
+	// --- 2. Subscribe to sensors/temperature via MQTT.
+	subPkt := &mqttpkg.SubscribePacket{
+		PacketID: 1,
+		Topics: []mqttpkg.TopicSubscription{
+			{Filter: "sensors/temperature", QoS: 0},
+		},
+	}
+	if err := subPkt.Encode(mqttConn); err != nil {
+		t.Fatalf("encode SUBSCRIBE: %v", err)
+	}
+
+	subackPkt, err := mqttpkg.ReadPacket(mqttConn)
+	if err != nil {
+		t.Fatalf("read SUBACK: %v", err)
+	}
+	if _, subackOK := subackPkt.(*mqttpkg.SubackPacket); !subackOK {
+		t.Fatalf("expected SUBACK, got %T", subackPkt)
+	}
+
+	// --- 3. Publish via AMQP to amq.topic with routing key sensors.temperature.
+	amqpConn := dialBroker(t, brk)
+	ch, err := amqpConn.Channel()
+	if err != nil {
+		t.Fatalf("open channel: %v", err)
+	}
+
+	err = ch.PublishWithContext(context.Background(), "amq.topic", "sensors.temperature", false, false, amqp.Publishing{
+		Body: []byte("22.5C"),
+	})
+	if err != nil {
+		t.Fatalf("amqp publish: %v", err)
+	}
+
+	// --- 4. Read the message from the MQTT subscriber.
+	if err := mqttConn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	pubPkt, err := mqttpkg.ReadPacket(mqttConn)
+	if err != nil {
+		t.Fatalf("read PUBLISH: %v", err)
+	}
+
+	pub, ok := pubPkt.(*mqttpkg.PublishPacket)
+	if !ok {
+		t.Fatalf("expected PUBLISH, got %T", pubPkt)
+	}
+
+	// The topic should be converted from AMQP format (dots) back to MQTT format (slashes).
+	if pub.TopicName != "sensors/temperature" {
+		t.Errorf("TopicName = %q, want %q", pub.TopicName, "sensors/temperature")
+	}
+	if string(pub.Payload) != "22.5C" {
+		t.Errorf("Payload = %q, want %q", pub.Payload, "22.5C")
+	}
+
+	// --- 5. Test MQTT-to-MQTT: publish via MQTT, receive via MQTT.
+	mqttPub, err := net.Dial("tcp", mqttAddr.String())
+	if err != nil {
+		t.Fatalf("mqtt pub dial: %v", err)
+	}
+	t.Cleanup(func() { _ = mqttPub.Close() })
+
+	pubConnPkt := &mqttpkg.ConnectPacket{
+		ProtocolName:  "MQTT",
+		ProtocolLevel: 4,
+		CleanSession:  true,
+		KeepAlive:     60,
+		ClientID:      "integration-pub",
+		Username:      "guest",
+		Password:      []byte("guest"),
+	}
+	if err := pubConnPkt.Encode(mqttPub); err != nil {
+		t.Fatalf("encode pub CONNECT: %v", err)
+	}
+	if _, err := mqttpkg.ReadPacket(mqttPub); err != nil {
+		t.Fatalf("read pub CONNACK: %v", err)
+	}
+
+	mqttPublishPkt := &mqttpkg.PublishPacket{
+		TopicName: "sensors/temperature",
+		QoS:       0,
+		Payload:   []byte("23.1C"),
+	}
+	if err := mqttPublishPkt.Encode(mqttPub); err != nil {
+		t.Fatalf("encode mqtt PUBLISH: %v", err)
+	}
+
+	// Read on subscriber.
+	if err := mqttConn.SetReadDeadline(time.Now().Add(testTimeout)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	mqttPubResp, err := mqttpkg.ReadPacket(mqttConn)
+	if err != nil {
+		t.Fatalf("read mqtt PUBLISH: %v", err)
+	}
+
+	mqttPubResult, ok := mqttPubResp.(*mqttpkg.PublishPacket)
+	if !ok {
+		t.Fatalf("expected PUBLISH, got %T", mqttPubResp)
+	}
+	if string(mqttPubResult.Payload) != "23.1C" {
+		t.Errorf("mqtt-to-mqtt Payload = %q, want %q", mqttPubResult.Payload, "23.1C")
+	}
 }
