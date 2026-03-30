@@ -241,6 +241,9 @@ func (q *Queue) SetEffectiveArgs(args map[string]interface{}) {
 func (q *Queue) MarkedForDelete() bool { return q.markedForDelete.Load() }
 
 // Publish enqueues a message asynchronously via the inbox channel.
+// If the inbox is full, it falls back to a synchronous write to avoid
+// blocking the caller's goroutine (which may be the connection read loop —
+// blocking it would prevent heartbeat processing and cause disconnects).
 // Use PublishSync for durable queues or when persistence must be confirmed
 // before returning (e.g. publisher confirms).
 func (q *Queue) Publish(msg *storage.Message) (bool, error) {
@@ -263,11 +266,21 @@ func (q *Queue) Publish(msg *storage.Message) (bool, error) {
 		q.inboxMu.Unlock()
 		return false, ErrQueueClosed
 	}
-	q.inbox <- &owned
-	q.inboxMu.Unlock()
+	// Non-blocking send: if the inbox is full, fall back to synchronous
+	// write. This prevents the connection read loop from blocking on a
+	// full inbox, which would stall heartbeat processing and cause the
+	// heartbeat goroutine to close the connection.
+	select {
+	case q.inbox <- &owned:
+		q.inboxMu.Unlock()
+		q.publishCount.Add(1)
+		return true, nil
+	default:
+		q.inboxMu.Unlock()
+	}
 
-	q.publishCount.Add(1)
-	return true, nil
+	// Inbox full — write synchronously under the queue lock.
+	return q.PublishSync(&owned)
 }
 
 // PublishSync writes a message directly to the store under the queue lock.

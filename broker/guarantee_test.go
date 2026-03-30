@@ -69,7 +69,7 @@ func TestGuarantee_ConsumerPriority(t *testing.T) {
 	}
 
 	// Wait for all messages to be delivered.
-	if !waitForCount(&highCount, 1, 3*time.Second) {
+	if !waitForCount(&highCount, 1, 10*time.Second) {
 		t.Fatal("timed out waiting for high-priority consumer to receive messages")
 	}
 

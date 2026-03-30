@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Publisher disconnects under sustained high-throughput load due to blocking inbox send stalling heartbeat processing
+
 ## [0.2.0] - 2026-03-30
 
 ### Added
