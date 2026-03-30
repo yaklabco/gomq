@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Consumer priority via `x-priority` argument on `basic.consume`
+- Single active consumer mode via `x-single-active-consumer` queue argument
+- `basic.return` for mandatory messages with no route (reply code 312)
+- `connection.blocked`/`connection.unblocked` flow control with disk space monitoring
+- Delivery limits via `x-delivery-limit` queue argument with dead-letter on exceed
 - CI pipeline with GitHub Actions (lint, test, build)
 - Changelog enforcement on pull requests
 - Release automation with goreleaser

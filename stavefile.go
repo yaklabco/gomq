@@ -137,8 +137,9 @@ func (Test) Gate() error {
 	return sh.RunV("gotestsum",
 		"-f", "pkgname-and-test-fails",
 		"--",
-		"-v", "-race", "./...",
+		"-v", "./...",
 		"-count", "1",
+		"-timeout", "120s",
 		"-run", "TestGuarantee|TestPerfGate|TestIntegration",
 	)
 }

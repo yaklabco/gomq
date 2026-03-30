@@ -15,6 +15,7 @@ const (
 const (
 	ReplySuccess       uint16 = 200
 	ContentTooLarge    uint16 = 311
+	NoRoute            uint16 = 312
 	NoConsumers        uint16 = 313
 	ConnectionForced   uint16 = 320
 	InvalidPath        uint16 = 402
@@ -47,14 +48,16 @@ const (
 // Method IDs encoded as (classID << 16) | methodID.
 const (
 	// Connection methods.
-	MethodConnectionStart   uint32 = 0x000A000A
-	MethodConnectionStartOk uint32 = 0x000A000B
-	MethodConnectionTune    uint32 = 0x000A001E
-	MethodConnectionTuneOk  uint32 = 0x000A001F
-	MethodConnectionOpen    uint32 = 0x000A0028
-	MethodConnectionOpenOk  uint32 = 0x000A0029
-	MethodConnectionClose   uint32 = 0x000A0032
-	MethodConnectionCloseOk uint32 = 0x000A0033
+	MethodConnectionStart     uint32 = 0x000A000A
+	MethodConnectionStartOk   uint32 = 0x000A000B
+	MethodConnectionTune      uint32 = 0x000A001E
+	MethodConnectionTuneOk    uint32 = 0x000A001F
+	MethodConnectionOpen      uint32 = 0x000A0028
+	MethodConnectionOpenOk    uint32 = 0x000A0029
+	MethodConnectionClose     uint32 = 0x000A0032
+	MethodConnectionCloseOk   uint32 = 0x000A0033
+	MethodConnectionBlocked   uint32 = 0x000A003C // class 10, method 60
+	MethodConnectionUnblocked uint32 = 0x000A003D // class 10, method 61
 
 	// Channel methods.
 	MethodChannelOpen    uint32 = 0x0014000A

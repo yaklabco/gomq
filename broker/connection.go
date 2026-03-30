@@ -89,7 +89,7 @@ func (c *Connection) Handshake() error {
 				"publisher_confirms":     true,
 				"basic.nack":             true,
 				"consumer_cancel_notify": true,
-				"connection.blocked":     false,
+				"connection.blocked":     true,
 				"per_consumer_qos":       true,
 				"direct_reply_to":        true,
 			},
@@ -428,6 +428,18 @@ func (c *Connection) sendHeartbeat() error {
 		return fmt.Errorf("write heartbeat: %w", err)
 	}
 	return c.writer.Flush()
+}
+
+// SendBlocked sends a Connection.Blocked frame to the client, indicating
+// the broker has hit a resource limit (e.g. low disk space).
+func (c *Connection) SendBlocked(reason string) error {
+	return c.sendFrame(0, &amqp.ConnectionBlocked{Reason: reason})
+}
+
+// SendUnblocked sends a Connection.Unblocked frame to the client, indicating
+// the resource constraint has been resolved.
+func (c *Connection) SendUnblocked() error {
+	return c.sendFrame(0, &amqp.ConnectionUnblocked{})
 }
 
 // --- PLAIN credential parsing ---

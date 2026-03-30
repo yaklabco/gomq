@@ -18,14 +18,16 @@ type Method interface {
 //nolint:gochecknoglobals // read-only registry initialized once
 var methodFactory = map[uint32]func() Method{
 	// Connection.
-	MethodConnectionStart:   func() Method { return &ConnectionStart{} },
-	MethodConnectionStartOk: func() Method { return &ConnectionStartOk{} },
-	MethodConnectionTune:    func() Method { return &ConnectionTune{} },
-	MethodConnectionTuneOk:  func() Method { return &ConnectionTuneOk{} },
-	MethodConnectionOpen:    func() Method { return &ConnectionOpen{} },
-	MethodConnectionOpenOk:  func() Method { return &ConnectionOpenOk{} },
-	MethodConnectionClose:   func() Method { return &ConnectionClose{} },
-	MethodConnectionCloseOk: func() Method { return &ConnectionCloseOk{} },
+	MethodConnectionStart:     func() Method { return &ConnectionStart{} },
+	MethodConnectionStartOk:   func() Method { return &ConnectionStartOk{} },
+	MethodConnectionTune:      func() Method { return &ConnectionTune{} },
+	MethodConnectionTuneOk:    func() Method { return &ConnectionTuneOk{} },
+	MethodConnectionOpen:      func() Method { return &ConnectionOpen{} },
+	MethodConnectionOpenOk:    func() Method { return &ConnectionOpenOk{} },
+	MethodConnectionClose:     func() Method { return &ConnectionClose{} },
+	MethodConnectionCloseOk:   func() Method { return &ConnectionCloseOk{} },
+	MethodConnectionBlocked:   func() Method { return &ConnectionBlocked{} },
+	MethodConnectionUnblocked: func() Method { return &ConnectionUnblocked{} },
 
 	// Channel.
 	MethodChannelOpen:    func() Method { return &ChannelOpen{} },
@@ -411,6 +413,41 @@ func (*ConnectionCloseOk) MethodID() uint32        { return MethodConnectionClos
 func (*ConnectionCloseOk) MethodName() string      { return "connection.close-ok" }
 func (*ConnectionCloseOk) Read(_ io.Reader) error  { return nil }
 func (*ConnectionCloseOk) Write(_ io.Writer) error { return nil }
+
+// ConnectionBlocked signals that the broker has hit a resource limit
+// (e.g. low disk space) and publishers should pause.
+type ConnectionBlocked struct {
+	Reason string // shortstr
+}
+
+func (*ConnectionBlocked) MethodID() uint32   { return MethodConnectionBlocked }
+func (*ConnectionBlocked) MethodName() string { return "connection.blocked" }
+
+func (cb *ConnectionBlocked) Read(r io.Reader) error {
+	rd := &wireReader{rd: r}
+	var err error
+	if cb.Reason, err = rd.readShortstr(); err != nil {
+		return fmt.Errorf("connection.blocked read reason: %w", err)
+	}
+	return nil
+}
+
+func (cb *ConnectionBlocked) Write(w io.Writer) error {
+	wt := &wireWriter{wt: w}
+	if err := wt.writeShortstr(cb.Reason); err != nil {
+		return fmt.Errorf("connection.blocked write reason: %w", err)
+	}
+	return nil
+}
+
+// ConnectionUnblocked signals that the resource constraint has been
+// resolved and publishers may resume.
+type ConnectionUnblocked struct{}
+
+func (*ConnectionUnblocked) MethodID() uint32        { return MethodConnectionUnblocked }
+func (*ConnectionUnblocked) MethodName() string      { return "connection.unblocked" }
+func (*ConnectionUnblocked) Read(_ io.Reader) error  { return nil }
+func (*ConnectionUnblocked) Write(_ io.Writer) error { return nil }
 
 // --- Channel methods ---
 

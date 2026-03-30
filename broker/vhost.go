@@ -377,6 +377,62 @@ func (v *VHost) Publish(exchangeName, routingKey string, syncPersist bool, msg *
 	return nil
 }
 
+// PublishMandatory routes a message through the named exchange and reports
+// whether at least one queue received the message. When the first return
+// value is false and the caller set the mandatory flag, a Basic.Return
+// should be sent to the publishing channel.
+func (v *VHost) PublishMandatory(exchangeName, routingKey string, syncPersist bool, msg *storage.Message) (bool, error) {
+	v.mu.RLock()
+	if v.closed {
+		v.mu.RUnlock()
+		return false, ErrVHostClosed
+	}
+	exchange, ok := v.exchanges[exchangeName]
+	v.mu.RUnlock()
+
+	if !ok {
+		return false, fmt.Errorf("exchange %q: %w", exchangeName, ErrExchangeNotFound)
+	}
+
+	brokerMsg := &Message{
+		ExchangeName: exchangeName,
+		RoutingKey:   routingKey,
+		Headers:      msg.Properties.Headers,
+	}
+
+	poolVal := routeResultPool.Get()
+	results, poolOK := poolVal.(map[Destination]struct{})
+	if !poolOK {
+		results = make(map[Destination]struct{}, defaultRouteResultSize)
+	}
+	exchange.Route(brokerMsg, results)
+
+	matched := len(results) > 0
+
+	for dest := range results {
+		queue, qOk := dest.(*Queue)
+		if !qOk {
+			continue
+		}
+
+		var pubErr error
+		if syncPersist && queue.IsDurable() {
+			_, pubErr = queue.PublishSync(msg)
+		} else {
+			_, pubErr = queue.Publish(msg)
+		}
+		if pubErr != nil {
+			clear(results)
+			routeResultPool.Put(results)
+			return matched, fmt.Errorf("publish to queue %q: %w", queue.Name(), pubErr)
+		}
+	}
+
+	clear(results)
+	routeResultPool.Put(results)
+	return matched, nil
+}
+
 // --- Lifecycle ---
 
 // Close closes all queues and marks the vhost as closed. It is safe

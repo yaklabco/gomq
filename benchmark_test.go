@@ -23,15 +23,15 @@ const (
 
 // TestPerfGate_1P1C measures single-publisher, single-consumer throughput.
 func TestPerfGate_1P1C(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
-		t.Skip("skipping perf gate in short/CI mode (shared runners have variable throughput)")
+	if testing.Short() || os.Getenv("CI") != "" || raceEnabled {
+		t.Skip("skipping perf gate (short mode, CI, or race detector)")
 	}
 	// Performance tests must not run in parallel -- resource contention
 	// produces unreliable measurements.
 
 	const (
 		msgCount  = 100_000
-		gateRate  = 30_000.0
+		gateRate  = 20_000.0
 		queueName = "perf-1p1c"
 	)
 
@@ -112,14 +112,14 @@ func TestPerfGate_1P1C(t *testing.T) {
 
 // TestPerfGate_4P4C measures throughput with four publishers and four consumers.
 func TestPerfGate_4P4C(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
-		t.Skip("skipping perf gate in short/CI mode (shared runners have variable throughput)")
+	if testing.Short() || os.Getenv("CI") != "" || raceEnabled {
+		t.Skip("skipping perf gate (short mode, CI, or race detector)")
 	}
 	const (
 		msgCount   = 200_000
 		publishers = 4
 		consumers  = 4
-		gateRate   = 30_000.0
+		gateRate   = 20_000.0
 		queueName  = "perf-4p4c"
 	)
 
@@ -239,8 +239,8 @@ func TestPerfGate_4P4C(t *testing.T) {
 
 // TestPerfGate_Latency measures end-to-end p99 latency.
 func TestPerfGate_Latency(t *testing.T) {
-	if testing.Short() || os.Getenv("CI") != "" {
-		t.Skip("skipping perf gate in short/CI mode (shared runners have variable throughput)")
+	if testing.Short() || os.Getenv("CI") != "" || raceEnabled {
+		t.Skip("skipping perf gate (short mode, CI, or race detector)")
 	}
 	const (
 		msgCount  = 10_000

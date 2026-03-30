@@ -6,20 +6,26 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jamesainslie/gomq/auth"
 	"github.com/jamesainslie/gomq/config"
 )
 
+// diskCheckInterval is how often the server checks available disk space.
+const diskCheckInterval = 10 * time.Second
+
 // Server is the top-level AMQP broker. It accepts TCP connections,
 // manages virtual hosts, and coordinates graceful shutdown.
 type Server struct {
-	mu     sync.Mutex
-	cfg    *config.Config
-	vhosts map[string]*VHost
-	users  *auth.UserStore
-	conns  map[*Connection]struct{}
-	closed bool
+	mu      sync.Mutex
+	cfg     *config.Config
+	vhosts  map[string]*VHost
+	users   *auth.UserStore
+	conns   map[*Connection]struct{}
+	closed  bool
+	blocked atomic.Bool // true when broker is resource-constrained
 }
 
 // NewServer creates a broker server, initialising the data directory,
@@ -51,6 +57,8 @@ func NewServer(cfg *config.Config) (*Server, error) {
 // cancelled. It spawns a goroutine per connection for handshake and
 // frame processing. Returns nil on graceful shutdown.
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
+	s.startDiskChecker(ctx)
+
 	// Close the listener when the context is cancelled so Accept returns.
 	go func() {
 		<-ctx.Done()
@@ -143,6 +151,67 @@ func (s *Server) handleConn(_ context.Context, netConn net.Conn) {
 	// ReadLoop returns nil on graceful close and error on protocol faults;
 	// in both cases the deferred cleanup closes the connection.
 	_ = conn.ReadLoop() //nolint:errcheck,contextcheck // handled by deferred close; consumers manage own contexts
+}
+
+// startDiskChecker starts a goroutine that periodically checks available
+// disk space and sends Connection.Blocked/Unblocked to all connections
+// when the state changes. It stops when the context is cancelled.
+func (s *Server) startDiskChecker(ctx context.Context) {
+	if s.cfg.FreeDiskMin <= 0 {
+		return
+	}
+
+	go func() {
+		ticker := time.NewTicker(diskCheckInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				free, err := freeDiskBytes(s.cfg.DataDir)
+				if err != nil {
+					continue
+				}
+
+				wasBlocked := s.blocked.Load()
+				isLow := free < s.cfg.FreeDiskMin
+
+				if isLow && !wasBlocked {
+					s.blocked.Store(true)
+					s.notifyAllConnections("low disk space", true)
+				} else if !isLow && wasBlocked {
+					s.blocked.Store(false)
+					s.notifyAllConnections("", false)
+				}
+			}
+		}
+	}()
+}
+
+// notifyAllConnections sends Connection.Blocked or Connection.Unblocked
+// to every active connection.
+func (s *Server) notifyAllConnections(reason string, blocked bool) {
+	s.mu.Lock()
+	conns := make([]*Connection, 0, len(s.conns))
+	for conn := range s.conns {
+		conns = append(conns, conn)
+	}
+	s.mu.Unlock()
+
+	for _, conn := range conns {
+		if blocked {
+			_ = conn.SendBlocked(reason) //nolint:errcheck // best-effort notification
+		} else {
+			_ = conn.SendUnblocked() //nolint:errcheck // best-effort notification
+		}
+	}
+}
+
+// Blocked reports whether the server is in a resource-constrained state.
+func (s *Server) Blocked() bool {
+	return s.blocked.Load()
 }
 
 // configureTCP sets TCP socket options on the connection.

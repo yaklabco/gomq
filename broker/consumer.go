@@ -2,7 +2,9 @@ package broker
 
 import (
 	"context"
+	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/jamesainslie/gomq/storage"
 )
@@ -16,6 +18,8 @@ type Consumer struct {
 	noAck      bool
 	exclusive  bool
 	prefetch   uint16
+	priority   int
+	active     atomic.Bool
 	unacked    atomic.Int32
 	capacityCh chan struct{}
 	deliverFn  func(env *storage.Envelope, deliveryTag uint64) error
@@ -46,6 +50,14 @@ func NewConsumer(
 	}
 }
 
+// SetPriority sets the consumer's priority level. Higher values receive
+// messages before lower values when multiple consumers compete on the
+// same queue. Must be called before Start.
+func (c *Consumer) SetPriority(p int) { c.priority = p }
+
+// Priority returns the consumer's priority level.
+func (c *Consumer) Priority() int { return c.priority }
+
 // stub returns the queue-level Consumer stub for registration with the queue.
 func (c *Consumer) stub() *consumerStub {
 	return &consumerStub{
@@ -53,6 +65,8 @@ func (c *Consumer) stub() *consumerStub {
 		Queue:     c.queue,
 		NoAck:     c.noAck,
 		Exclusive: c.exclusive,
+		Priority:  c.priority,
+		consumer:  c,
 	}
 }
 
@@ -94,6 +108,11 @@ func (c *Consumer) HasCapacity() bool {
 func (c *Consumer) run(ctx context.Context) {
 	defer close(c.done)
 
+	// For single-active-consumer queues, wait until this consumer is activated.
+	if !c.waitForActive(ctx) {
+		return
+	}
+
 	var deliveryTag uint64
 
 	for {
@@ -104,6 +123,11 @@ func (c *Consumer) run(ctx context.Context) {
 
 		// Wait for prefetch capacity.
 		if !c.waitForCapacity(ctx) {
+			return
+		}
+
+		// Yield to higher-priority consumers that have capacity.
+		if !c.waitForPriority(ctx) {
 			return
 		}
 
@@ -132,6 +156,57 @@ func (c *Consumer) run(ctx context.Context) {
 			c.unacked.Add(1)
 		}
 	}
+}
+
+// waitForActive blocks until this consumer is the active consumer for
+// single-active-consumer queues. For normal queues, it returns immediately.
+func (c *Consumer) waitForActive(ctx context.Context) bool {
+	if !c.queue.singleActiveConsumer {
+		c.active.Store(true)
+		return true
+	}
+
+	// Poll for activation. We use a short polling interval rather than
+	// consuming from msgNotify to avoid stealing signals from the delivery loop.
+	const activePollInterval = 50 * time.Millisecond
+	for {
+		if c.active.Load() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(activePollInterval):
+		}
+	}
+}
+
+// waitForPriority yields if higher-priority consumers on the same queue
+// have available capacity. This implements the LavinMQ-style priority
+// consumer behavior where lower-priority consumers defer to higher ones.
+func (c *Consumer) waitForPriority(ctx context.Context) bool {
+	if !c.queue.hasPriorityConsumers() {
+		return true
+	}
+
+	// Only check if there are actually higher-priority consumers.
+	c.queue.mu.RLock()
+	hasHigher := false
+	for _, other := range c.queue.consumers {
+		if other.Priority > c.priority && other.hasCapacity() {
+			hasHigher = true
+			break
+		}
+	}
+	c.queue.mu.RUnlock()
+
+	if !hasHigher {
+		return true
+	}
+
+	// Yield once via runtime to let higher-priority goroutine proceed.
+	runtime.Gosched()
+	return ctx.Err() == nil
 }
 
 // waitForCapacity blocks until the consumer has prefetch capacity or the
